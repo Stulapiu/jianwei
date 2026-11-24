@@ -125,8 +125,9 @@ function serveStatic(req, res, urlPath) {
   let rel = decodeURIComponent(urlPath.split('?')[0]);
   if (rel === '/' || rel === '') rel = '/index.html';
 
-  // 根路径给一个入口页，省得记目录名
-  if (rel === '/index.html') return serveLanding(res);
+  // 根路径：优先用仓库根目录的 index.html（和 GitHub Pages 保持同一张脸），
+  // 没有才回落到内置入口页
+  if (rel === '/index.html' && !fs.existsSync(path.join(ROOT, 'index.html'))) return serveLanding(res);
 
   let file = path.join(ROOT, rel);
 
