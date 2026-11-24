@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>见微 · 网页版</title>
+<meta name="description" content="见微 · 校园微治理 —— 桌面网页版，适合投屏演示与日常办公。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232B7A78'/%3E%3Cpath d='M16 6l9 3.4v7c0 5.6-3.7 9.4-9 11.2-5.3-1.8-9-5.6-9-11.2v-7L16 6Z' stroke='%23fff' stroke-width='2' fill='none' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='15' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../shared/tilemap.css">
+<link rel="stylesheet" href="assets/web.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ============ 左侧图标栏 ============ -->
+  <aside class="rail">
+    <div class="rail-brand" title="见微">
+      <svg viewBox="0 0 24 24" width="21" height="21" fill="none" aria-hidden="true">
+        <path d="M12 3.2l7.2 2.6v5.8c0 4.6-3 7.7-7.2 9.2-4.2-1.5-7.2-4.6-7.2-9.2V5.8L12 3.2Z"
+              stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <circle cx="12" cy="11.4" r="2.5" fill="currentColor"/>
+      </svg>
+    </div>
+
+    <nav class="rail-nav" id="railNav">
+      <button class="rail-btn is-on" data-view="map" title="地图">
+        <span class="ri" data-icon="map"></span><span class="rl">地图</span>
+      </button>
+      <button class="rail-btn" data-view="report" title="上报">
+        <span class="ri" data-icon="plus"></span><span class="rl">上报</span>
+      </button>
+      <button class="rail-btn" data-view="tickets" title="我的工单">
+        <span class="ri" data-icon="list"></span><span class="rl">工单</span>
+      </button>
+      <button class="rail-btn" data-view="query" title="查进度">
+        <span class="ri" data-icon="search"></span><span class="rl">查进度</span>
+      </button>
+      <button class="rail-btn" data-view="me" title="我的">
+        <span class="ri" data-icon="user"></span><span class="rl">我的</span>
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <button class="rail-avatar" id="railAvatar" title="切换身份">游</button>
+    </div>
+  </aside>
+
+  <!-- ============ 主区域 ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="tb-left">
+        <h1 class="tb-title" id="viewTitle">地图</h1>
+        <span class="tb-sub" id="viewSub">郑州大学主校区 · 实时点位</span>
+      </div>
+      <div class="tb-right">
+        <div class="id-pill" id="idPill">
+          <span class="dot"></span><span id="idPillText">游客模式</span>
+        </div>
+        <a class="tb-link" href="../admin-web/index.html" target="_blank">打开管理后台 ↗</a>
+      </div>
+    </header>
+
+    <div class="views">
+
+      <!-- ---------- 地图 ---------- -->
+      <section class="view is-on" data-view="map">
+        <div class="mapstage">
+          <div class="map-holder" id="mapHolder"></div>
+
+          <div class="map-top">
+            <div class="seg" id="layerSeg">
+              <button class="seg-btn is-on" data-layer="pending">待处理</button>
+              <button class="seg-btn" data-layer="resolved">已解决</button>
+              <button class="seg-btn" data-layer="all">全部</button>
+            </div>
+            <div class="seg seg--sm">
+              <button class="seg-btn is-on" data-base="gaode">标准</button>
+              <button class="seg-btn" data-base="satellite">卫星</button>
+              <button class="seg-btn" data-base="plain">路网</button>
+            </div>
+            <button class="mapbtn" id="btnHeat" title="热力层">
+              <span data-icon="spark"></span>热力
+            </button>
+            <button class="mapbtn" id="btnLocate" title="定位">
+              <span data-icon="locate"></span>定位
+            </button>
+          </div>
+
+          <div class="map-stats">
+            <div class="ms-item"><b class="num" id="msPending">0</b><span>处待处理</span></div>
+            <div class="ms-sep"></div>
+            <div class="ms-item"><b class="num is-ok" id="msResolved">0</b><span>处已解决</span></div>
+            <div class="ms-sep"></div>
+            <div class="ms-item"><b class="num" id="msMerged">0</b><span>组已合并</span></div>
+          </div>
+
+          <div class="map-tip" id="mapTip">点任意标记看详情 · 拖拽平移 · 滚轮缩放</div>
+        </div>
+      </section>
+
+      <!-- ---------- 上报 ---------- -->
+      <section class="view" data-view="report">
+        <!-- 提交后的结果落在这里，盖住表单 -->
+        <div class="result-host" id="resultHost" hidden></div>
+
+        <div class="report-grid" id="reportGrid">
+          <div class="rp-main">
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">现场照片</div>
+                  <div class="card-s">选一张示意图，或把自己的照片拖进来</div>
+                </div>
+                <span class="tag tag--soft" id="photoState">未选择</span>
+              </div>
+              <div class="shots" id="shotList"></div>
+              <div class="drop" id="dropZone">
+                <span class="dz-ic" data-icon="image"></span>
+                <div class="dz-t">把照片拖到这里</div>
+                <div class="dz-s">本地图片不会上传到任何服务器，只在浏览器里做质量分析</div>
+                <input type="file" id="fileInput" accept="image/*" hidden>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">问题类型</div>
+                  <div class="card-s">选完自动匹配责任部门</div>
+                </div>
+                <span class="tag tag--dept" id="deptTag" hidden></span>
+              </div>
+              <div class="types" id="typeList"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">位置</div>
+                  <div class="card-s" id="locSub">自动定位，或在地图上点一下</div>
+                </div>
+                <span class="tag tag--soft" id="locState">未定位</span>
+              </div>
+              <div class="locrow">
+                <label class="field">
+                  <span data-icon="pin"></span>
+                  <input id="addrInput" placeholder="例如：图书馆南广场东侧" spellcheck="false">
+                </label>
+                <button class="btn btn--ghost" id="btnPickMap">在图上选点</button>
+              </div>
+              <div class="coord" id="coordLine">坐标会在展示时模糊到约 100 米</div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">补充说明</div>
+                  <div class="card-s">写清楚"什么样、影响谁"，AI 判断会更准</div>
+                </div>
+                <span class="tag tag--soft"><b id="descCount">0</b>/100</span>
+              </div>
+              <textarea id="descInput" maxlength="100" rows="3"
+                        placeholder="例如：路灯不亮，晚上这段路完全黑的，骑车容易撞上"></textarea>
+            </div>
+
+          </div>
+
+          <!-- 右侧：AI 与提交 -->
+          <div class="rp-side">
+            <div class="card card--ai">
+              <div class="card-t">哨兵智能体</div>
+              <div class="ai-state" id="aiState">
+                <div class="ai-orb"><i></i><i></i><span data-icon="spark"></span></div>
+                <div class="ai-txt">提交后先做本地图像质量分析，再交给 DeepSeek 判断语义是否一致</div>
+              </div>
+              <div class="ai-steps" id="aiSteps"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-t">一下这些都会自动算</div>
+              <ul class="auto-list">
+                <li><span data-icon="check"></span>责任部门（按类型固定绑定）</li>
+                <li><span data-icon="check"></span>紧急度与 P0–P4 优先级</li>
+                <li><span data-icon="check"></span>是否与已有工单合并</li>
+                <li><span data-icon="check"></span>查询编码（不登录也能查）</li>
+              </ul>
+              <button class="btn btn--primary btn--block" id="btnSubmit">提交上报</button>
+              <div class="submit-hint" id="submitHint">还需要：照片、类型、位置</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 我的工单 ---------- -->
+      <section class="view" data-view="tickets">
+        <div class="card">
+          <div class="card-hd">
+            <div>
+              <div class="card-t">我提交过的</div>
+              <div class="card-s" id="ticketsSub">共 0 条</div>
+            </div>
+            <div class="seg seg--sm" id="ticketSeg">
+              <button class="seg-btn is-on" data-tstatus="all">全部</button>
+              <button class="seg-btn" data-tstatus="pending">待派单</button>
+              <button class="seg-btn" data-tstatus="processing">处理中</button>
+              <button class="seg-btn" data-tstatus="resolved">已解决</button>
+            </div>
+          </div>
+          <div class="tlist" id="ticketList"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 查进度 ---------- -->
+      <section class="view" data-view="query">
+        <div class="query-wrap">
+          <div class="card">
+            <div class="card-t">凭编码查进度</div>
+            <div class="card-s">提交成功后会给一串形如 <b>JW-8F3K2M</b> 的编码，不登录也能查</div>
+            <div class="query-row">
+              <input id="queryInput" placeholder="JW-8F3K2M" maxlength="12" spellcheck="false" autocomplete="off">
+              <button class="btn btn--primary" id="btnQuery">查询</button>
+            </div>
+            <div class="query-demo">
+              <span>试试：</span>
+              <button class="chip-code" data-fill="JW-8F3K2M">JW-8F3K2M<i>处理中</i></button>
+              <button class="chip-code" data-fill="JW-Q7M4TP">JW-Q7M4TP<i>已解决</i></button>
+            </div>
+          </div>
+          <div id="queryResult"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 我的 ---------- -->
+      <section class="view" data-view="me">
+        <div class="me-grid">
+          <div class="card me-id">
+            <div class="me-avatar" id="meAvatar">游</div>
+            <div class="me-name" id="meName">游客</div>
+            <div class="me-kind" id="meKind">未登录 · 数据只存在这台设备</div>
+            <button class="btn btn--ghost btn--block" id="btnIdentity">登录 / 切换账号</button>
+          </div>
+
+          <div class="card">
+            <div class="credit-row">
+              <div>
+                <div class="card-s">信用分</div>
+                <div class="credit-big"><span class="num" id="meCredit">70</span><small>/ 100</small></div>
+              </div>
+              <div class="tier" id="meTier">见习哨兵</div>
+            </div>
+            <div class="credit-bar"><i id="meCreditBar"></i></div>
+            <div class="card-s mt6" id="meCreditNote">有效上报 +2 · 被复核判定无效 −5</div>
+          </div>
+
+          <div class="card metric">
+            <div class="card-s">积分</div>
+            <div class="metric-v num" id="mePoints">0</div>
+            <div class="card-s">有效 +10 · 解决 +30 · 乱报 −20</div>
+          </div>
+
+          <div class="card metric">
+            <div class="card-s">账号权重</div>
+            <div class="metric-v num" id="meWeight">1.00</div>
+            <div class="card-s" id="meWeightNote">正常 · 合并时计入人数</div>
+          </div>
+
+          <div class="card">
+            <div class="card-t">上报统计</div>
+            <div class="tri">
+              <div><b class="num" id="meValid">0</b><span>有效上报</span></div>
+              <div><b class="num is-ok" id="meResolved">0</b><span>已解决</span></div>
+              <div><b class="num" id="meInvalid">0</b><span>无效提交</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-t">已获得徽章</div>
+            <div class="badges" id="meBadges"></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ============ 右侧上下文面板 ============ -->
+  <aside class="ctx" id="ctx">
+    <div class="ctx-card" id="ctxCard"></div>
+  </aside>
+
+</div>
+
+<!-- ============ 身份闸门 ============ -->
+<div class="gate" id="gate" hidden>
+  <div class="gate-card">
+    <div class="gate-brand">
+      <div class="gate-mark">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+          <path d="M12 3.2l7.2 2.6v5.8c0 4.6-3 7.7-7.2 9.2-4.2-1.5-7.2-4.6-7.2-9.2V5.8L12 3.2Z"
+                stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="12" cy="11.4" r="2.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="gate-t">见微 · 网页版</div>
+        <div class="gate-s">登录后信用分与积分才会长期累积</div>
+      </div>
+    </div>
+
+    <div class="gate-tabs">
+      <button class="gate-tab is-on" data-gtab="school">学号</button>
+      <button class="gate-tab" data-gtab="phone">手机号</button>
+      <button class="gate-tab" data-gtab="guest">游客</button>
+    </div>
+
+    <div class="gate-pane is-on" data-gpane="school">
+      <input class="gate-input" id="gSchoolId" maxlength="12" placeholder="10 位学号" autocomplete="off">
+      <div class="gate-hint" id="gSchoolHint">校内统一身份 · 无需密码</div>
+      <button class="btn btn--primary btn--block" id="gSchoolBtn">一键登录</button>
+    </div>
+
+    <div class="gate-pane" data-gpane="phone">
+      <input class="gate-input" id="gPhone" maxlength="11" placeholder="11 位手机号" autocomplete="off">
+      <div class="gate-code-row">
+        <input class="gate-input" id="gCode" maxlength="6" placeholder="6 位验证码" autocomplete="off">
+        <button class="gate-send" id="gSend">获取验证码</button>
+      </div>
+      <div class="gate-hint" id="gPhoneHint">演示环境会直接显示验证码</div>
+      <button class="btn btn--primary btn--block" id="gPhoneBtn">登录</button>
+    </div>
+
+    <div class="gate-pane" data-gpane="guest">
+      <div class="gate-note">
+        不登录也能上报和查进度。提交后会给你一串<b>查询编码</b>，
+        但信用分只存在这台设备上，换浏览器就没了。
+      </div>
+      <button class="btn btn--primary btn--block" id="gGuestBtn">以游客身份进入</button>
+    </div>
+
+    <button class="gate-close" id="gClose" hidden>返回</button>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script src="../shared/tilemap.js"></script>
+<script src="../shared/domain.js"></script>
+<script src="../shared/auth.js"></script>
+<script src="../shared/agent.js"></script>
+<script src="../shared/data.js"></script>
+<script src="../h5-web/assets/js/ui.js"></script>
+<script src="assets/web.js"></script>
+</body>
+</html>

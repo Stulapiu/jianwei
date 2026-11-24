@@ -131,6 +131,15 @@
             <span data-icon="locate" data-size="12"></span>
             <span>展示时坐标自动模糊到约 100 米</span>
           </div>
+
+          <!-- 定位失败时露出来：桌面浏览器经常拿不到 GPS，这里给两条明路 -->
+          <div class="loc-alert" id="locAlert" hidden>
+            <div class="la-txt" id="locAlertText">这里拿不到定位</div>
+            <div class="la-acts">
+              <button class="la-btn" id="btnRelocate">重新定位</button>
+              <button class="la-btn is-primary" id="btnPickOnMap">在地图上选点</button>
+            </div>
+          </div>
         </div>
 
         <!-- 描述 -->
@@ -168,10 +177,13 @@
       <!-- ========== 5. 我的 ========== -->
       <section class="screen" data-screen="profile">
         <div class="profile-head reveal">
-          <div class="avatar" id="pAvatar">李</div>
+          <div class="avatar" id="pAvatar">见</div>
           <div>
-            <div class="nm" id="pName">李知远</div>
-            <div class="sb" id="pStreak">连续 3 天上报</div>
+            <div class="nm" id="pName">游客</div>
+            <div class="sb" id="pStreak">今天还没上报</div>
+            <button class="id-chip" id="pIdChip" type="button">
+              <span data-icon="user" data-size="12"></span><span id="pIdText">游客模式</span>
+            </button>
           </div>
         </div>
 
@@ -184,7 +196,20 @@
             <div class="credit-tier" id="pTier">守信哨兵</div>
           </div>
           <div class="credit-bar"><i id="creditBar"></i></div>
-          <div class="credit-note">有效上报 +2 · 无效提交 −1 · 满 100 分可兑换文创</div>
+          <div class="credit-note" id="pCreditNote">有效上报 +2 · 被复核判定无效 −5</div>
+        </div>
+
+        <div class="score-pair reveal" style="--d:2">
+          <div class="score-cell">
+            <div class="sc-k">积分</div>
+            <div class="sc-v num" id="pPoints">0</div>
+            <div class="sc-h">有效 +10 · 解决 +30 · 乱报 −20</div>
+          </div>
+          <div class="score-cell">
+            <div class="sc-k">账号权重</div>
+            <div class="sc-v" id="pWeight">1.00</div>
+            <div class="sc-h" id="pWeightHint">正常</div>
+          </div>
         </div>
 
         <div class="tri-stat reveal" style="--d:2">
@@ -214,6 +239,16 @@
             <span class="grow">徽章墙</span>
             <span class="arrow" data-icon="chevron" data-size="14"></span>
           </button>
+          <button class="menu-item" data-go="query">
+            <span class="mi" data-icon="search" data-size="17"></span>
+            <span class="grow">凭编码查进度</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
+          <button class="menu-item" id="btnLogout">
+            <span class="mi" data-icon="back" data-size="17"></span>
+            <span class="grow" id="logoutLabel">切换账号 / 退出登录</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
           <button class="menu-item" id="btnExchange">
             <span class="mi" data-icon="zap" data-size="17"></span>
             <span class="grow">积分兑换</span>
@@ -241,11 +276,102 @@
         </div>
       </section>
 
+      <!-- ========== 7. 凭编码查询 ========== -->
+      <section class="screen" data-screen="query">
+        <div class="nav">
+          <button class="nav-back" data-go="profile" aria-label="返回">
+            <span data-icon="back" data-size="19"></span>
+          </button>
+          <div class="nav-title">查询进度</div>
+        </div>
+
+        <div class="hero-head reveal" style="padding-top:8px">
+          <div class="h1">凭编码查进度</div>
+          <div class="sub">提交成功后会给一串编码，记下来就能随时查</div>
+        </div>
+
+        <div class="query-box reveal" style="--d:1">
+          <input id="queryInput" placeholder="JW-8F3K2M" autocomplete="off" spellcheck="false"
+                 maxlength="12" aria-label="查询编码">
+          <button class="btn btn--primary" id="btnQuery">查询</button>
+        </div>
+
+        <div id="queryResult"></div>
+
+        <div class="query-tips reveal" style="--d:3">
+          <div class="qt-hd">演示编码，可直接试</div>
+          <button class="qt-row" data-fill="JW-8F3K2M">
+            <span class="qt-code">JW-8F3K2M</span><span class="qt-t">处理中 · 路灯</span>
+          </button>
+          <button class="qt-row" data-fill="JW-Q7M4TP">
+            <span class="qt-code">JW-Q7M4TP</span><span class="qt-t">已解决 · 积水</span>
+          </button>
+        </div>
+      </section>
+
     </div>
 
     <!-- 底部导航 -->
     <nav class="tabbar" id="tabbar"></nav>
     <div class="hi-bar"><i></i></div>
+
+    <!-- ========== 身份闸门：首次进入时挡在前面 ========== -->
+    <div class="auth-gate" id="authGate" hidden>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-mark">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+              <path d="M12 3.2l7.2 2.6v5.8c0 4.6-3 7.7-7.2 9.2-4.2-1.5-7.2-4.6-7.2-9.2V5.8L12 3.2Z"
+                    stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+              <circle cx="12" cy="11.4" r="2.5" fill="currentColor"/>
+            </svg>
+          </div>
+          <div>
+            <div class="auth-title">见微</div>
+            <div class="auth-sub">看见问题，就是解决的一半</div>
+          </div>
+        </div>
+
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab on" data-auth-tab="school" role="tab">学号登录</button>
+          <button class="auth-tab" data-auth-tab="phone" role="tab">手机号登录</button>
+        </div>
+
+        <div class="auth-pane is-on" data-auth-pane="school">
+          <label class="auth-field">
+            <span class="fl">学号</span>
+            <input id="authSchoolId" inputmode="numeric" maxlength="12" placeholder="10 位学号" autocomplete="off">
+          </label>
+          <div class="auth-hint" id="authSchoolHint">校内统一身份 · 无需密码</div>
+          <button class="btn btn--primary btn--block" id="btnSchoolLogin">一键登录</button>
+          <div class="auth-demo">演示环境：任意 8–12 位数字都能进</div>
+        </div>
+
+        <div class="auth-pane" data-auth-pane="phone">
+          <label class="auth-field">
+            <span class="fl">手机号</span>
+            <input id="authPhone" inputmode="numeric" maxlength="11" placeholder="11 位手机号" autocomplete="off">
+          </label>
+          <label class="auth-field auth-field--code">
+            <span class="fl">验证码</span>
+            <input id="authCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码" autocomplete="off">
+            <button class="auth-send" id="btnSendCode" type="button">获取验证码</button>
+          </label>
+          <div class="auth-hint" id="authPhoneHint">首次登录自动建号，老号码回到原账号</div>
+          <button class="btn btn--primary btn--block" id="btnPhoneLogin">登录</button>
+          <div class="auth-demo">演示环境：点「获取验证码」会在提示里直接给出</div>
+        </div>
+
+        <div class="auth-divider"><span>或者</span></div>
+
+        <button class="auth-guest" id="btnGuest">不登录，直接看看</button>
+        <div class="auth-guest-note">
+          不登录也能上报。提交后会给你一串<b>查询编码</b>，凭这串编码随时查进度。
+        </div>
+
+        <button class="auth-close" id="btnAuthClose" hidden>返回应用</button>
+      </div>
+    </div>
 
   </div>
 
@@ -297,9 +423,10 @@
 
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
+<script src="../shared/auth.js"></script>
 <script src="../shared/agent.js"></script>
 <script src="assets/js/ui.js"></script>
-<script src="assets/js/data.js"></script>
+<script src="../shared/data.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

@@ -313,6 +313,23 @@ input, select { font-family: inherit; }
 
 /* ---- 收起状态 ---- */
 
+/* 宽度和文字一起动，收起来的过程才像"折叠"而不是"闪现" */
+.sidebar {
+  transition: width .44s var(--ease-out), padding .44s var(--ease-out);
+  overflow: hidden;
+}
+.brand-text,
+.nav-label,
+.nav-badge,
+.side-foot-text {
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity .24s var(--ease), transform .34s var(--ease);
+  transform-origin: left center;
+}
+.nav-item { transition: padding .38s var(--ease-out), background .18s, color .18s, transform .18s; }
+.nav-item .nav-label { flex: 1; }
+
 .app.is-collapsed .sidebar {
   width: var(--sidebar-w-min);
   padding-left: 10px;
@@ -324,11 +341,24 @@ input, select { font-family: inherit; }
 .app.is-collapsed .side-foot-text {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(-10px);
 }
+
+/* 文字先淡出、图标后收位，错开一点就有"层次感" */
+.app.is-collapsed .nav-item:nth-child(1) .nav-label { transition-delay: 0ms; }
+.app.is-collapsed .nav-item:nth-child(2) .nav-label { transition-delay: 18ms; }
+.app.is-collapsed .nav-item:nth-child(3) .nav-label { transition-delay: 36ms; }
+.app.is-collapsed .nav-item:nth-child(4) .nav-label { transition-delay: 54ms; }
+.app.is-collapsed .nav-item:nth-child(5) .nav-label { transition-delay: 72ms; }
+
 .app.is-collapsed .brand { padding-left: 7px; padding-right: 7px; }
 .app.is-collapsed .nav-item { padding: 0 13px; justify-content: flex-start; }
+.app.is-collapsed .nav-item svg { transform: scale(1.06); }
 .app.is-collapsed .collapse-btn svg { transform: rotate(180deg); }
 .app.is-collapsed .nav-badge { display: none; }
+
+/* 图标在收起时轻微"弹"一下，给个触觉暗示 */
+.nav-item svg { transition: transform .34s var(--spring); }
 
 /* ---------------- 主区域 ---------------- */
 
@@ -452,6 +482,38 @@ main {
 
 .view { display: none; padding: 20px 26px 56px; }
 .view.active { display: block; animation: viewIn .42s var(--ease); }
+
+/* 表格行入场：排序/筛选之后整片刷新时，逐行错开 18ms，
+   眼睛能跟得上"哪一行动了"，比整块闪现舒服很多 */
+.view.active tbody tr {
+  animation: rowIn .34s var(--ease-out) backwards;
+}
+.view.active tbody tr:nth-child(1)  { animation-delay: 0ms; }
+.view.active tbody tr:nth-child(2)  { animation-delay: 18ms; }
+.view.active tbody tr:nth-child(3)  { animation-delay: 36ms; }
+.view.active tbody tr:nth-child(4)  { animation-delay: 54ms; }
+.view.active tbody tr:nth-child(5)  { animation-delay: 72ms; }
+.view.active tbody tr:nth-child(6)  { animation-delay: 90ms; }
+.view.active tbody tr:nth-child(7)  { animation-delay: 108ms; }
+.view.active tbody tr:nth-child(8)  { animation-delay: 126ms; }
+.view.active tbody tr:nth-child(n+9) { animation-delay: 144ms; }
+
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 抽屉从右侧滑入时，内容比外壳晚一拍，像抽屉里的东西跟着滑出来 */
+.drawer .drawer-body > * {
+  animation: drawerItemIn .36s var(--ease-out) backwards;
+}
+.drawer .drawer-body > *:nth-child(2) { animation-delay: 40ms; }
+.drawer .drawer-body > *:nth-child(3) { animation-delay: 80ms; }
+.drawer .drawer-body > *:nth-child(4) { animation-delay: 120ms; }
+@keyframes drawerItemIn {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: none; }
+}
 
 @keyframes viewIn {
   from { opacity: 0; transform: translateY(10px); }

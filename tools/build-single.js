@@ -23,6 +23,7 @@ const DIST = path.join(ROOT, 'dist');
 
 const TARGETS = [
   { src: 'h5-web/index.html',   out: '见微-用户端.html',   title: '用户端' },
+  { src: 'web/index.html',      out: '见微-网页版.html',   title: '网页版' },
   { src: 'admin-web/index.html', out: '见微-管理后台.html', title: '管理后台' }
 ];
 
@@ -104,5 +105,5 @@ console.log('─'.repeat(54));
 for (const t of TARGETS) build(t);
 
 console.log('\n' + '─'.repeat(54));
-console.log('  完成。这两个文件可以直接双击打开，也可以单独发出去。');
+console.log('  完成。这些文件可以直接双击打开，也可以单独发出去。');
 console.log('─'.repeat(54) + '\n');

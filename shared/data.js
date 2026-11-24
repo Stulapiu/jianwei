@@ -326,8 +326,8 @@
       key: 'water', tone: 'ok', n: '06', label: '积水返水',
       sub: '新类型 · 派给水电班组',
       photo: 'puddle', type: 'water',
-      desc: '路面一直积水，下水好像堵了',
-      addr: '菊园食堂东侧路面',
+      desc: '下水道堵了，一直往上返水，积了一大片',
+      addr: '菊园食堂东侧排水口',
       lng: 113.5317, lat: 34.8135
     }
   ];

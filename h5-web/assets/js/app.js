@@ -16,6 +16,7 @@
 
   const D = window.DATA;
   const UI = window.UI;
+  const A = window.Auth;
   const $  = function (s, r) { return (r || document).querySelector(s); };
   const $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
@@ -33,12 +34,13 @@
     lat: null,            // 上报点纬度
     located: false,
     invalidStreak: 0,     // 连续被拦次数，满 3 转人工
+    session: null,        // 当前身份（学号 / 手机号 / 游客）
     reports: JSON.parse(JSON.stringify(D.MY_REPORTS)),
     user: JSON.parse(JSON.stringify(D.USER))
   };
 
   /** 这三屏是二级页，进入后收起底部导航 */
-  const HIDE_TAB = ['report', 'result', 'badges'];
+  const HIDE_TAB = ['report', 'result', 'badges', 'query'];
 
   const TABS = [
     { key: 'map',     label: '地图',     icon: 'map' },
@@ -69,10 +71,8 @@
   }
 
   function tierOf(credit) {
-    if (credit >= 90) return '金牌哨兵';
-    if (credit >= 75) return '守信哨兵';
-    if (credit >= 60) return '见习哨兵';
-    return '待提升';
+    // 分档规则收在 Auth 里，用户端和后台读的是同一份
+    return A ? A.tierOf(credit).name : '见习哨兵';
   }
 
   /* ============================================================
@@ -548,7 +548,14 @@
     }
 
     $('#addrInput').value = state.addr;
-    $('#locState').textContent = source === 'gps' ? '已定位' : '已定位 · 默认位置';
+    $('#locState').textContent = source === 'gps' ? '已定位'
+      : source === 'manual' ? '已手动选点' : '已定位 · 默认位置';
+
+    // 手动选点或真定位成功后，把"定位失败"提示收起来
+    if (source === 'gps' || source === 'manual') {
+      const alertEl = $('#locAlert');
+      if (alertEl) alertEl.hidden = true;
+    }
 
     const meta = $('#coordMeta');
     if (meta && meta.lastElementChild) {
@@ -624,7 +631,22 @@
   function fallbackLocate(reason, force) {
     setTimeout(function () {
       applyLocation(TileMap.CAMPUS.lng, TileMap.CAMPUS.lat, 'fallback', force);
-      if (reason) UI.toast(reason + '，先用校区中心，可手动修正', 'warn');
+
+      // 桌面浏览器没有 GPS 模块，定位大概率走不通。
+      // 与其只弹个 toast（两秒就没了），不如把两条明路摆在表单里。
+      const alertEl = $('#locAlert');
+      if (alertEl) {
+        alertEl.hidden = false;
+        $('#locAlertText').textContent = (reason || '获取不到定位') +
+          ' · 当前用的是校区中心';
+      }
+
+      if (reason) {
+        const detail = location.protocol === 'file:'
+          ? '本地文件方式打开时浏览器会禁用定位，用 http://localhost:8787 打开即可'
+          : '可以先在图上选点，不影响提交';
+        UI.toast(reason + ' · ' + detail, 'warn');
+      }
     }, 260);
   }
 
@@ -661,47 +683,131 @@
       state.addr = e.target.value;
     });
 
-    $('#btnFixLoc').addEventListener('click', function () {
-      // 真实版本是打开地图点选。这里给校区里的主要地标，
-      // 每个都带真实坐标，选完之后定位信息也会跟着更新
-      const body = '<div class="picker picker--list">' +
-        D.LANDMARKS.map(function (m) {
-          return '<button class="pick-row" data-spot="' + m.id + '">' +
-                   UI.icon('pin', 15) +
-                   '<span style="flex:1;text-align:left">' + UI.escapeHtml(m.name) + '</span>' +
-                   '<span class="hint num">' + m.lng.toFixed(4) + ', ' + m.lat.toFixed(4) + '</span>' +
-                 '</button>';
-        }).join('') + '</div>';
+    $('#btnFixLoc').addEventListener('click', openPickSheet);
 
-      UI.sheet({
-        title: '修正位置',
-        sub: '校内主要地点 · 选完自动对齐坐标',
-        body: body,
-        onMount: function (api) {
-          $$('[data-spot]', api.el).forEach(function (b) {
-            b.addEventListener('click', function () {
-              const m = D.LANDMARKS.filter(function (x) { return x.id === b.dataset.spot; })[0];
-              if (!m) return;
-              state.addr = m.name;
-              state.lng = m.lng;
-              state.lat = m.lat;
-              state.located = true;
-              $('#addrInput').value = m.name;
-              const meta = $('#coordMeta');
-              if (meta && meta.lastElementChild) {
-                meta.lastElementChild.textContent =
-                  m.lat.toFixed(5) + ', ' + m.lng.toFixed(5) + ' · 展示时模糊到约 100 米';
-              }
-              api.close();
-              refreshSubmit();
-              UI.toast('位置已更新 · ' + m.name, 'ok');
-            });
-          });
-        }
+    // 定位失败提示里的两个出口
+    const btnRelocate = $('#btnRelocate');
+    if (btnRelocate) {
+      btnRelocate.addEventListener('click', function () {
+        const alertEl = $('#locAlert');
+        if (alertEl) alertEl.hidden = true;
+        realLocate(true);
       });
-    });
+    }
+    const btnPickOnMap = $('#btnPickOnMap');
+    if (btnPickOnMap) btnPickOnMap.addEventListener('click', openPickSheet);
 
     $('#btnSubmit').addEventListener('click', submit);
+  }
+
+  /** 手动选点后的统一收尾：地址、坐标、状态、按钮一起更新 */
+  function applyManual(lng, lat, name) {
+    state.lng = lng;
+    state.lat = lat;
+    state.located = true;
+
+    if (name) {
+      state.addr = name;
+    } else {
+      const near = nearestLandmark(lng, lat);
+      state.addr = near.distance <= 400
+        ? near.landmark.name + '附近'
+        : near.distance <= 1500
+          ? near.landmark.name + '以东约 ' + Math.round(near.distance) + ' 米'
+          : '校区内 · 已手动选点';
+    }
+
+    $('#addrInput').value = state.addr;
+    $('#locState').textContent = '已手动选点';
+
+    const meta = $('#coordMeta');
+    if (meta && meta.lastElementChild) {
+      meta.lastElementChild.textContent =
+        lat.toFixed(5) + ', ' + lng.toFixed(5) + ' · 展示时模糊到约 100 米';
+    }
+
+    const alertEl = $('#locAlert');
+    if (alertEl) alertEl.hidden = true;
+
+    refreshSubmit();
+  }
+
+  /**
+   * 选位置：上面一张小地图点选，下面一列地标。
+   * 两条路都留着——赶时间点地标，要精确就在图上点。
+   */
+  function openPickSheet() {
+    const spots = D.LANDMARKS.map(function (m) {
+      return '<button class="pick-row" data-spot="' + m.id + '">' +
+               UI.icon('pin', 15) +
+               '<span style="flex:1;text-align:left">' + UI.escapeHtml(m.name) + '</span>' +
+               '<span class="hint num">' + m.lng.toFixed(4) + ', ' + m.lat.toFixed(4) + '</span>' +
+             '</button>';
+    }).join('');
+
+    const body =
+      '<div class="pick-map" id="pickMap"></div>' +
+      '<div class="pick-note" id="pickNote">在图上点一下就能选点</div>' +
+      '<div class="picker picker--list" style="margin-top:10px">' + spots + '</div>' +
+      '<button class="btn btn--primary btn--block" id="pickOk" style="margin-top:10px">用这个位置</button>';
+
+    let chosen = null;
+
+    UI.sheet({
+      title: '选择位置',
+      sub: '点哪里就是哪里 · 坐标自动对齐',
+      body: body,
+      onMount: function (api) {
+        const mapEl = $('#pickMap', api.el);
+        const noteEl = $('#pickNote', api.el);
+
+        const m = TileMap.create(mapEl, {
+          center: [state.lng || TileMap.CAMPUS.lng, state.lat || TileMap.CAMPUS.lat],
+          zoom: 16,
+          source: 'gaode',
+          onClick: function (lng, lat) { choose(lng, lat); }
+        });
+        // 弹层刚展开时容器尺寸还没稳定，等一帧再量
+        setTimeout(function () { m.resize(); }, 80);
+
+        function choose(lng, lat) {
+          chosen = { lng: lng, lat: lat };
+          m.setMarkers([{
+            id: 'pick', lng: lng, lat: lat,
+            className: 'is-pick',
+            html: '<span class="pick-dot"><i></i></span>'
+          }]);
+          noteEl.textContent = '已选中 · ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
+        }
+
+        if (state.lng) choose(state.lng, state.lat);
+
+        $$('[data-spot]', api.el).forEach(function (b) {
+          b.addEventListener('click', function () {
+            const spot = D.LANDMARKS.filter(function (x) { return x.id === b.dataset.spot; })[0];
+            if (!spot) return;
+            chosen = { lng: spot.lng, lat: spot.lat, name: spot.name };
+            m.flyTo(spot.lng, spot.lat, 17);
+            m.setMarkers([{
+              id: 'pick', lng: spot.lng, lat: spot.lat,
+              className: 'is-pick',
+              html: '<span class="pick-dot"><i></i></span>'
+            }]);
+            noteEl.textContent = '已选中 · ' + spot.name;
+          });
+        });
+
+        $('#pickOk', api.el).addEventListener('click', function () {
+          if (!chosen) {
+            UI.toast('先在图上点一下，或者挑一个地标');
+            return;
+          }
+          applyManual(chosen.lng, chosen.lat, chosen.name);
+          api.close();
+          UI.toast('位置已更新', 'ok');
+        });
+      }
+    });
   }
 
   /* ============================================================
@@ -822,10 +928,30 @@
     const merge = checkMerge();
     state.invalidStreak = 0;
 
+    // 合并之后真实生效的紧急度：报告页和工单里必须是同一个数
+    const finalSeverity = (merge.merged && merge.severityAfter > v.severity)
+      ? merge.severityAfter
+      : v.severity;
+
+    const s = A.get();
+    const ticket = A.registerTicket({
+      type: state.type,
+      addr: state.addr || '已记录坐标',
+      lng: state.lng,
+      lat: state.lat,
+      dept: Domain.deptFor(state.type).name,
+      severity: finalSeverity,
+      merged: !!merge.merged,
+      reporters: merge.reporters || 1,
+      ownerId: s ? s.id : A.deviceId(),
+      ownerKind: s ? s.kind : 'guest'
+    });
+
     const rec = {
       id: 'q' + Date.now(),
+      code: ticket.code,
       type: state.type,
-      status: 'pending',
+      status: A.needsHumanReview() ? 'review' : 'pending',
       addr: state.addr || '已记录坐标',
       ago: 0,
       merged: merge.merged ? Math.max(1, merge.reporters - 1) : 0,
@@ -835,11 +961,12 @@
     };
     state.reports.unshift(rec);
 
-    state.user.validCnt++;
-    state.user.credit = Math.min(100, state.user.credit + 2);
+    // 结算走 Auth：学分 + 积分 + 权重一起动，别在这里各改各的
+    const reward = A.rewardValid({ merged: !!merge.merged, crowd: merge.kind === 'crowd' });
+    applySession();
     const newBadges = grantBadges(v, merge.merged, true);
 
-    showPass(v, merge, newBadges);
+    showPass(v, merge, newBadges, ticket.code, reward);
   }
 
   /**
@@ -907,7 +1034,10 @@
     if (cnt >= 10) add('clean_hand');
     if (state.user.streak >= 7) add('gold_sentinel');
 
-    if (earned.length) state.user.badges = owned.concat(earned);
+    if (earned.length) {
+      state.user.badges = owned.concat(earned);
+      A.patch({ badges: state.user.badges });
+    }
     return earned.map(function (code) {
       return D.BADGES.filter(function (b) { return b.code === code; })[0];
     }).filter(Boolean);
@@ -919,9 +1049,10 @@
     return '<span class="stars">' + s + '<span class="n num">' + n + ' / 5</span></span>';
   }
 
-  function showPass(v, merge, newBadges) {
+  function showPass(v, merge, newBadges, code, reward) {
     const typeLabel = D.TYPE_LABEL[state.type];
     const dept = Domain.deptFor(state.type);
+    const isGuest = !state.session || state.session.kind === 'guest';
     // 合并会抬升紧急度，界面上要显示抬升后的值，
     // 否则会出现「紧急度 2 星」和「从 2 星抬到 3 星」并排打架
     const finalSeverity = (merge && merge.merged && merge.severityAfter > v.severity)
@@ -938,6 +1069,19 @@
         '</div>' +
         '<div class="result-title">已经收到</div>' +
         '<div class="result-sub">谢谢你替这条街多看一眼</div>' +
+
+        '<div class="code-card">' +
+          '<div class="cc-k">' + UI.icon('ticket', 12) + '查询编码</div>' +
+          '<div class="cc-row">' +
+            '<span class="cc-code">' + UI.escapeHtml(code) + '</span>' +
+            '<button class="cc-copy" data-copy="' + UI.escapeHtml(code) + '">复制</button>' +
+          '</div>' +
+          '<div class="cc-note">' +
+            (isGuest
+              ? '游客也能凭这串编码查进度，建议截图或记下来——清掉浏览器记录就找不回来了'
+              : '凭这串编码随时查进度，登录状态下也能在「我的上报」里直接看到') +
+          '</div>' +
+        '</div>' +
 
         '<div class="info-card">' +
           '<div class="info-row"><span class="k">问题类型</span><span class="v">' + typeLabel + '</span></div>' +
@@ -982,10 +1126,19 @@
               '<div class="hint" style="margin-top:2px">' + newBadges[0].desc + '</div>' +
             '</div>' +
           '</div>' : '') +
+
+        /* 结算反馈：让人当场看到"这趟没白跑" */
+        (reward ?
+          '<div class="reward-note">' +
+            '<span class="rw-chip">信用 +' + reward.creditGain + '</span>' +
+            '<span class="rw-chip is-pt">积分 +' + reward.pointGain + '</span>' +
+            '<span class="rw-hint">当前 ' + state.user.credit + ' 分 · ' + state.user.points + ' 积分</span>' +
+          '</div>' : '') +
       '</div>' +
 
       '<div class="result-actions">' +
         '<button class="btn btn--primary btn--block" data-go="reports">看看我的上报</button>' +
+        '<button class="btn btn--ghost btn--block" id="btnViewCode" data-code="' + UI.escapeHtml(code) + '">查看这张工单的进度</button>' +
         '<button class="btn btn--text btn--block" data-go="map">回到地图</button>' +
       '</div>';
 
@@ -1042,6 +1195,33 @@
     body.innerHTML = html;
     go('result');
 
+    // 复制编码：手机上 clipboard 可能被拦，拦了就退化成选中文本
+    const copyBtn = $('[data-copy]');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        const text = copyBtn.dataset.copy;
+        const done = function () {
+          copyBtn.textContent = '已复制';
+          setTimeout(function () { copyBtn.textContent = '复制'; }, 1600);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { UI.toast('复制失败，长按编码手动复制'); });
+        } else {
+          UI.toast('编码：' + text + '（长按可复制）', 'ok');
+        }
+      });
+    }
+
+    const viewCode = $('#btnViewCode');
+    if (viewCode) {
+      viewCode.addEventListener('click', function () {
+        const input = $('#queryInput');
+        if (input) input.value = viewCode.dataset.code;
+        renderQuery(viewCode.dataset.code);
+        go('query');
+      });
+    }
+
     const retry = $('#btnRetry');
     if (retry) {
       retry.addEventListener('click', function () {
@@ -1057,8 +1237,23 @@
         force.disabled = true;
         force.textContent = '已提交，等待复核';
 
+        // 转人工也要给编码——否则游客这条就彻底查不到了
+        const ss = A.get();
+        const tk = A.registerTicket({
+          type: state.type,
+          addr: state.addr || '已记录坐标',
+          lng: state.lng, lat: state.lat,
+          dept: Domain.deptFor(state.type).name,
+          severity: v.severity || 2,
+          merged: false, reporters: 1,
+          ownerId: ss ? ss.id : A.deviceId(),
+          ownerKind: ss ? ss.kind : 'guest'
+        });
+        A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
+
         state.reports.unshift({
           id: 'q' + Date.now(),
+          code: tk.code,
           type: state.type,
           status: 'review',
           addr: state.addr || '已记录坐标',
@@ -1068,7 +1263,7 @@
         });
 
         setTimeout(function () {
-          UI.toast('已转人工复核，结果会通知你', 'ok');
+          UI.toast('已转人工复核 · 编码 ' + tk.code, 'ok');
           go('reports');
         }, 500);
       });
@@ -1139,6 +1334,7 @@
                  '<div class="report-addr">' + UI.escapeHtml(r.addr) + '</div>' +
                  '<div class="report-meta">' +
                    '<span>' + when + '</span>' +
+                   (r.code ? '<span>· <b class="mono">' + UI.escapeHtml(r.code) + '</b></span>' : '') +
                    (r.merged ? '<span>· 已与 ' + r.merged + ' 人合并</span>' : '') +
                  '</div>' +
                '</div>' +
@@ -1148,6 +1344,9 @@
 
   function renderProfile() {
     const u = state.user;
+    const s = state.session || A.get();
+    const guest = !s || s.kind === 'guest';
+
     $('#pAvatar').textContent = u.initial;
     $('#pName').textContent = u.name;
     $('#pStreak').textContent = u.streak > 0 ? '连续 ' + u.streak + ' 天上报' : '今天还没上报';
@@ -1157,6 +1356,33 @@
     $('#pValid').textContent = u.validCnt;
     $('#pResolved').textContent = u.resolvedCnt;
     $('#pInvalid').textContent = u.invalidCnt;
+
+    /* 身份标签 */
+    const chip = $('#pIdChip');
+    const idText = $('#pIdText');
+    if (guest) {
+      idText.textContent = '游客模式 · 点这里登录';
+      chip.classList.add('is-guest');
+    } else if (s.kind === 'school') {
+      idText.textContent = '学号 ' + s.id;
+      chip.classList.remove('is-guest');
+    } else {
+      idText.textContent = A.maskPhone(s.id);
+      chip.classList.remove('is-guest');
+    }
+
+    /* 积分与权重 */
+    $('#pPoints').textContent = u.points || 0;
+    const w = u.weight || 1;
+    $('#pWeight').textContent = w.toFixed(2);
+    $('#pWeightHint').textContent = A.weightLabel(w) +
+      (w < 0.6 ? ' · 不计入合并人数' : ' · 合并时计入人数');
+
+    $('#pCreditNote').textContent = guest
+      ? '游客的信用分只存在这台设备上，登录后才会长期累积'
+      : '有效上报 +2 · 被复核判定无效 −5 · 低于 60 分进人工复核';
+
+    $('#logoutLabel').textContent = guest ? '登录 / 切换账号' : '切换账号 / 退出登录';
 
     const owned = D.BADGES.filter(function (b) { return u.badges.indexOf(b.code) >= 0; });
     $('#profileBadges').innerHTML = owned.length
@@ -1205,6 +1431,9 @@
   }
 
   async function runScene(s) {
+    // 演示面板在设备外面，点它就当"我要看流程"，顺手以游客身份过闸
+    if (!A.get()) { A.loginGuest(); applySession(); }
+    hideGate();
     go('report');
     resetForm(true);
 
@@ -1257,9 +1486,335 @@
      启动
      ============================================================ */
 
+  /* ============================================================
+     9. 身份 / 积分 / 编码查询
+     ============================================================ */
+
+  /** 工单状态在查询页的展示口径 */
+  const TICKET_STATUS = {
+    pending:    { label: '待派单', color: '#C97E15', bg: 'var(--warn-bg)' },
+    processing: { label: '处理中', color: '#2B7A78', bg: 'var(--brand-light)' },
+    resolved:   { label: '已解决', color: '#3E8A5F', bg: 'var(--ok-bg)' },
+    review:     { label: '人工复核', color: '#6B7C8A', bg: 'var(--review-bg)' }
+  };
+
+  function fmtTime(at) {
+    const d = new Date(at);
+    const p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  /**
+   * 把当前身份同步到界面状态。
+   * 登录账号带演示底数（86 分、12 条历史），游客从零开始——
+   * 这个差异本身就是讲解点：不登录也能用，但没有信用积累。
+   */
+  function applySession() {
+    const s = A.get();
+    state.session = s;
+
+    if (!s) return;
+
+    if (s.kind === 'guest') {
+      state.user = {
+        name: '游客', initial: '游',
+        credit: s.credit, points: s.points || 0, weight: s.weight || 1,
+        validCnt: s.validCnt || 0,
+        resolvedCnt: s.resolvedCnt || 0,
+        invalidCnt: s.invalidCnt || 0,
+        streak: 0,
+        badges: s.badges || []
+      };
+      return;
+    }
+
+    state.user = {
+      name: s.name,
+      initial: (s.name || '同').slice(0, 1),
+      credit: s.credit,
+      points: s.points || 0,
+      weight: s.weight || 1,
+      validCnt: s.validCnt || 0,
+      resolvedCnt: s.resolvedCnt || 0,
+      invalidCnt: s.invalidCnt || 0,
+      streak: s.streak || 0,
+      badges: s.badges || []
+    };
+  }
+
+  /** 新账号第一次登录时灌一份演示底数，免得个人中心是空的 */
+  function seedIfNew(s) {
+    if (!s || s.seeded || s.kind === 'guest') return;
+    A.patch({
+      seeded: true,
+      credit: 86,
+      points: 260,
+      weight: 1,
+      validCnt: D.USER.validCnt,
+      resolvedCnt: D.USER.resolvedCnt,
+      invalidCnt: D.USER.invalidCnt,
+      streak: D.USER.streak || 3,
+      badges: (D.USER.badges || []).slice()
+    });
+  }
+
+  function showGate(canClose) {
+    const g = $('#authGate');
+    if (!g) return;
+    g.hidden = false;
+    $('#btnAuthClose').hidden = !canClose;
+    g.style.animation = 'none';
+    void g.offsetWidth;
+    g.style.animation = '';
+  }
+
+  function hideGate() {
+    const g = $('#authGate');
+    if (g) g.hidden = true;
+  }
+
+  function bindAuth() {
+    // 两个 Tab 之间切换
+    $$('[data-auth-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const key = btn.dataset.authTab;
+        $$('[data-auth-tab]').forEach(function (b) { b.classList.toggle('on', b === btn); });
+        $$('[data-auth-pane]').forEach(function (p) {
+          p.classList.toggle('is-on', p.dataset.authPane === key);
+        });
+      });
+    });
+
+    /* ---- 学号一键登录 ---- */
+    const schoolInput = $('#authSchoolId');
+    const schoolHint = $('#authSchoolHint');
+
+    schoolInput.addEventListener('input', function () {
+      const v = schoolInput.value.replace(/\D/g, '');
+      schoolInput.value = v;
+      if (!v) { schoolHint.textContent = '校内统一身份 · 无需密码'; schoolHint.className = 'auth-hint'; return; }
+      const c = A.checkSchoolId(v);
+      if (c.ok) {
+        schoolHint.textContent = '已识别：' + v.slice(0, 4) + ' 级 · ' + v.slice(-4) + ' 号';
+        schoolHint.className = 'auth-hint is-ok';
+      } else {
+        schoolHint.textContent = '还需要 ' + Math.max(0, 8 - v.length) + ' 位数字';
+        schoolHint.className = 'auth-hint';
+      }
+    });
+
+    schoolInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') $('#btnSchoolLogin').click();
+    });
+
+    $('#btnSchoolLogin').addEventListener('click', function () {
+      const btn = this;
+      const r = A.login({ kind: 'school', id: schoolInput.value });
+      if (!r.ok) {
+        schoolHint.textContent = r.msg;
+        schoolHint.className = 'auth-hint is-warn';
+        schoolInput.focus();
+        return;
+      }
+      btn.textContent = '正在进入…';
+      btn.setAttribute('aria-disabled', 'true');
+      seedIfNew(r.user);
+      setTimeout(function () {
+        enterAfterLogin(r.user, '学号 ' + r.user.id.slice(-4) + ' 号');
+        btn.textContent = '一键登录';
+        btn.removeAttribute('aria-disabled');
+      }, 520);
+    });
+
+    /* ---- 手机号 + 验证码 ---- */
+    const phoneInput = $('#authPhone');
+    const codeInput = $('#authCode');
+    const phoneHint = $('#authPhoneHint');
+    const sendBtn = $('#btnSendCode');
+    let sentCode = '';
+    let cooldown = 0;
+    let cooldownTimer = null;
+
+    phoneInput.addEventListener('input', function () {
+      phoneInput.value = phoneInput.value.replace(/\D/g, '');
+    });
+
+    sendBtn.addEventListener('click', function () {
+      if (cooldown > 0) return;
+      const c = A.checkPhone(phoneInput.value);
+      if (!c.ok) {
+        phoneHint.textContent = c.msg;
+        phoneHint.className = 'auth-hint is-warn';
+        phoneInput.focus();
+        return;
+      }
+      // 演示环境不真发短信，直接把验证码摆在提示里
+      sentCode = String(Math.floor(100000 + Math.random() * 900000));
+      phoneHint.innerHTML = '验证码已发送到 ' + A.maskPhone(c.id) + '，演示码：<b>' + sentCode + '</b>';
+      phoneHint.className = 'auth-hint is-ok';
+      codeInput.value = '';
+      codeInput.focus();
+
+      cooldown = 60;
+      sendBtn.disabled = true;
+      sendBtn.textContent = cooldown + 's';
+      cooldownTimer = setInterval(function () {
+        cooldown--;
+        if (cooldown <= 0) {
+          clearInterval(cooldownTimer);
+          sendBtn.disabled = false;
+          sendBtn.textContent = '重新获取';
+        } else {
+          sendBtn.textContent = cooldown + 's';
+        }
+      }, 1000);
+    });
+
+    codeInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') $('#btnPhoneLogin').click();
+    });
+
+    $('#btnPhoneLogin').addEventListener('click', function () {
+      const btn = this;
+      if (!sentCode) {
+        phoneHint.textContent = '先点「获取验证码」';
+        phoneHint.className = 'auth-hint is-warn';
+        return;
+      }
+      if (codeInput.value !== sentCode) {
+        phoneHint.textContent = '验证码不对，再看一眼提示里那 6 位';
+        phoneHint.className = 'auth-hint is-warn';
+        return;
+      }
+      const r = A.login({ kind: 'phone', id: phoneInput.value, code: codeInput.value });
+      if (!r.ok) {
+        phoneHint.textContent = r.msg;
+        phoneHint.className = 'auth-hint is-warn';
+        return;
+      }
+      btn.textContent = '正在进入…';
+      seedIfNew(r.user);
+      setTimeout(function () {
+        enterAfterLogin(r.user, A.maskPhone(r.user.id));
+        btn.textContent = '登录';
+      }, 480);
+    });
+
+    /* ---- 游客 ---- */
+    $('#btnGuest').addEventListener('click', function () {
+      const r = A.loginGuest();
+      if (!r.ok) return;
+      enterAfterLogin(r.user, '游客模式');
+      UI.toast('已进入游客模式 · 提交后会给查询编码', 'ok');
+    });
+
+    $('#btnAuthClose').addEventListener('click', hideGate);
+
+    /* ---- 个人中心里的身份标签 / 退出 ---- */
+    $('#pIdChip').addEventListener('click', function () {
+      const s = A.get();
+      if (!s || s.kind === 'guest') showGate(!!s);
+      else UI.toast('当前身份：' + (s.kind === 'school' ? '学号 ' + s.id : A.maskPhone(s.id)), 'ok');
+    });
+
+    $('#btnLogout').addEventListener('click', function () {
+      const s = A.get();
+      A.logout();
+      applySession();
+      renderProfile();
+      go('map');
+      showGate(false);
+      UI.toast(s && s.kind !== 'guest' ? '已退出登录' : '登录后可以累积信用分', 'ok');
+    });
+  }
+
+  function enterAfterLogin(user, who) {
+    applySession();
+    hideGate();
+    renderProfile();
+    renderBadges();
+    go('map');
+    UI.toast('欢迎，' + who, 'ok');
+  }
+
+  /* ---------------- 编码查询 ---------------- */
+
+  function renderQuery(raw) {
+    const box = $('#queryResult');
+    const code = String(raw || '').trim();
+    if (!code) {
+      box.innerHTML = '<div class="qr-empty">输入提交时拿到的编码，就能看到这张工单走到哪一步了</div>';
+      return;
+    }
+
+    const t = A.findTicket(code);
+    if (!t) {
+      box.innerHTML =
+        '<div class="qr-empty">' +
+          '没找到 <b>' + UI.escapeHtml(code.toUpperCase()) + '</b> 这张工单<br>' +
+          '编码形如 JW-8F3K2M，注意别把 O 和 0 弄混' +
+        '</div>';
+      return;
+    }
+
+    const st = TICKET_STATUS[t.status] || TICKET_STATUS.pending;
+    const typeLabel = (window.DATA.TYPE_LABEL && D.TYPE_LABEL[t.type]) || t.type || '—';
+
+    box.innerHTML =
+      '<div class="qr-card">' +
+        '<div class="qr-hd">' +
+          '<div>' +
+            '<div class="qr-code">' + UI.escapeHtml(t.code) + '</div>' +
+            '<div class="qr-type">' + UI.escapeHtml(typeLabel) + ' · ' + fmtTime(t.at) + '</div>' +
+          '</div>' +
+          '<span class="qr-status" style="color:' + st.color + ';background:' + st.bg + '">' +
+            st.label + '</span>' +
+        '</div>' +
+        '<dl class="qr-meta">' +
+          '<dt>位置</dt><dd>' + UI.escapeHtml(t.addr || '已记录坐标') + '</dd>' +
+          '<dt>负责部门</dt><dd>' + UI.escapeHtml(t.dept || '待分派') + '</dd>' +
+          '<dt>紧急度</dt><dd>' + starsHTML(t.severity || 1) + '</dd>' +
+          '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+        '</dl>' +
+        '<div class="tl">' +
+          (t.timeline || []).map(function (e, i) {
+            return '<div class="tl-row' + (i === 0 ? ' is-first' : '') + (e.tone === 'ok' ? ' is-ok' : '') + '">' +
+                     '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
+                     '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
+                   '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+  }
+
+  function bindQuery() {
+    const input = $('#queryInput');
+    $('#btnQuery').addEventListener('click', function () { renderQuery(input.value); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); renderQuery(input.value); }
+    });
+    $$('[data-fill]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        input.value = b.dataset.fill;
+        renderQuery(b.dataset.fill);
+      });
+    });
+  }
+
   function boot() {
     // 状态栏图标
     $('#sbIcons').innerHTML = UI.icon('signal', 15) + UI.icon('wifi', 15) + UI.icon('battery', 22);
+
+    /* 身份：有会话直接进；没有就挡一层闸门。
+       但 #demo-* / #point / #query 这些演示入口不该被拦住，
+       自动以游客身份进入，投屏时少点两下。 */
+    const hash0 = decodeURIComponent(location.hash.replace(/^#/, ''));
+    if (!A.get()) {
+      const isDemoEntry = hash0.indexOf('demo-') === 0 || hash0 === 'point' ||
+                          hash0 === 'point-done' || hash0 === 'query';
+      if (isDemoEntry) A.loginGuest();
+    }
+    applySession();
 
     renderTabbar();
     renderMapStats();
@@ -1269,6 +1824,9 @@
     renderPhotos();
     renderTypes();
     bindReport();
+    bindAuth();
+    bindQuery();
+    renderQuery('');
     realLocate();
 
     renderReportTabs();
@@ -1276,6 +1834,8 @@
     renderProfile();
     renderBadges();
     renderScenes();
+
+    if (!A.get()) showGate(false);
 
     // 全局点击路由
     document.addEventListener('click', function (e) {
@@ -1286,7 +1846,8 @@
     $('#btnReset').addEventListener('click', resetDemo);
 
     $('#btnExchange').addEventListener('click', function () {
-      UI.toast('积分商城正在筹备，先攒着');
+      const u = state.user;
+      UI.toast('积分商城正在筹备 · 你现在有 ' + (u.points || 0) + ' 积分', 'ok');
     });
 
     hydrate();

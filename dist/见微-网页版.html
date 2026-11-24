@@ -1,0 +1,5245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>见微 · 网页版</title>
+<meta name="description" content="见微 · 校园微治理 —— 桌面网页版，适合投屏演示与日常办公。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232B7A78'/%3E%3Cpath d='M16 6l9 3.4v7c0 5.6-3.7 9.4-9 11.2-5.3-1.8-9-5.6-9-11.2v-7L16 6Z' stroke='%23fff' stroke-width='2' fill='none' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='15' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<style data-from="../shared/tilemap.css">
+/* ==========================================================================
+ * 见微 · 瓦片地图样式
+ * 与 tilemap.js 配套，用户端与管理端共用
+ * ========================================================================== */
+
+.tm-root {
+  position: relative;
+  overflow: hidden;
+  background: #E8EFEE;
+  touch-action: none;          /* 单指拖地图，不带动页面滚动 */
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.tm-root.is-dragging { cursor: grabbing; }
+
+/* ---------------- 瓦片 ---------------- */
+
+.tm-tiles {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/*
+ * 瓦片默认就是可见的，淡入交给只写 from 的动画。
+ * 不要写成 opacity:0 + 靠 JS 加 class 才显示 —— 一旦动画/过渡在某个
+ * 环境下没推进（无头浏览器、低端机降频），整张底图会集体消失。
+ */
+.tm-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 256px;
+  height: 256px;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  animation: tmTileIn .28s ease-out backwards;
+}
+@keyframes tmTileIn {
+  from { opacity: 0; }
+}
+/* 加载失败的空瓦片直接藏掉，别露破图 */
+.tm-tile.is-bad { visibility: hidden; }
+
+/* ---------------- 热力 ---------------- */
+
+.tm-heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;    /* 让热力压在底图上还能看见路网，而不是糊成一团色块 */
+  opacity: .92;
+}
+
+/* ---------------- 标记 ---------------- */
+
+.tm-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tm-mark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  transition: left .18s linear, top .18s linear;
+  will-change: left, top;
+}
+
+/* ---------------- 底图兜底 ---------------- */
+
+.tm-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background-color: #E9F0EF;
+  background-image:
+    linear-gradient(rgba(43, 122, 120, .08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 122, 120, .08) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
+}
+.tm-grid span {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .86);
+  border: 1px solid rgba(43, 122, 120, .18);
+  font-size: 12px;
+  color: #5C7472;
+}
+
+/* ---------------- 缩放控件 ---------------- */
+
+.tm-ctrl {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px -8px rgba(20, 50, 48, .45);
+  z-index: 4;
+}
+.tm-ctrl button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: rgba(255, 255, 255, .94);
+  color: #2B4A48;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .16s;
+}
+.tm-ctrl button:hover { background: #fff; }
+.tm-ctrl button:active { background: #EAF3F2; }
+
+/* 版权（高德要求标注来源，别删） */
+.tm-attrib {
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  font-size: 9px;
+  color: rgba(60, 80, 78, .55);
+  pointer-events: none;
+  z-index: 3;
+  letter-spacing: .2px;
+}
+
+/* ---------------- 单标记外观 ---------------- */
+
+.tm-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px -2px rgba(20, 50, 48, .5);
+  position: relative;
+  cursor: pointer;
+  transition: transform .22s cubic-bezier(.34, 1.56, .64, 1);
+}
+.tm-dot:hover { transform: scale(1.24); }
+.tm-dot::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: .28;
+  animation: tmPulse 2.6s ease-out infinite;
+}
+@keyframes tmPulse {
+  0%   { transform: scale(.8); opacity: .34; }
+  70%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.tm-dot.is-plain::after { display: none; }
+
+</style>
+<style data-from="assets/web.css">
+/* ==========================================================================
+ * 见微 · 网页版（桌面端）
+ * --------------------------------------------------------------------------
+ * 为什么手机端之外还要一个网页版：
+ *   手机端是给"走在路上随手拍"设计的，一屏一件事，适合真机演示。
+ *   但答辩投屏、组内评审、和后台并排对照，都需要一个能用鼠标、信息密度
+ *   更高的界面。这不是把手机界面拉宽，而是重新排了一套三栏布局：
+ *
+ *     [窄图标栏 76] [主内容 自适应] [上下文面板 330]
+ *
+ *   上下文面板是关键：选点位时显示详情，上报时显示 AI 判定，平时显示概览。
+ *   手机上这个信息靠弹层承载，桌面上应该一直可见。
+ * ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+
+:root {
+  --brand:       #2B7A78;
+  --brand-deep:  #1F5C5A;
+  --brand-soft:  #5FA3A1;
+  --brand-light: #E6F0EF;
+  --brand-tint:  #F2F7F6;
+
+  --bg:      #F4F7F6;
+  --card:    rgba(255, 255, 255, .70);
+  --card-solid: #FFFFFF;
+
+  --text:   #16211F;
+  --text-2: #61716F;
+  --text-3: #93A2A0;
+
+  --line:   #E4EBE9;
+  --line-2: #EFF4F3;
+
+  --danger: #D9483F;  --danger-bg: #FBECEB;
+  --warn:   #C97E15;  --warn-bg:   #FBF1DC;
+  --ok:     #3E8A5F;  --ok-bg:     #E8F2EC;
+  --review: #6B7C8A;  --review-bg: #EEF1F3;
+
+  --r-s: 9px; --r-m: 13px; --r-l: 18px; --r-xl: 24px;
+
+  --sh-s: 0 1px 2px rgba(15, 40, 38, .05);
+  --sh-m: 0 12px 32px -16px rgba(15, 40, 38, .22);
+  --sh-l: 0 30px 70px -34px rgba(15, 40, 38, .38);
+
+  --spring: cubic-bezier(.34, 1.4, .64, 1);
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+  --font: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei",
+          "Source Han Sans SC", -apple-system, sans-serif;
+  --font-num: "Bahnschrift", "DIN Alternate", "Optima", "Segoe UI", var(--font);
+
+  --rail-w: 76px;
+  --ctx-w: 330px;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* 背景光晕：玻璃材质需要有东西可以透 */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+body::before {
+  width: 620px; height: 620px;
+  top: -240px; left: -140px;
+  background: rgba(43, 122, 120, .26);
+}
+body::after {
+  width: 560px; height: 560px;
+  bottom: -260px; right: 8%;
+  background: rgba(122, 107, 196, .16);
+}
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--ctx-w);
+  height: 100vh;
+}
+
+/* ============================================================
+   图标栏
+   ============================================================ */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 0 14px;
+  background: rgba(255, 255, 255, .56);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  backdrop-filter: blur(24px) saturate(170%);
+  border-right: 1px solid rgba(255, 255, 255, .8);
+  box-shadow: 1px 0 0 rgba(22, 33, 31, .04);
+}
+
+.rail-brand {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(150deg, var(--brand), var(--brand-deep));
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(31, 92, 90, .75);
+  margin-bottom: 14px;
+}
+
+.rail-nav { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 0 10px; }
+
+.rail-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease), transform .2s var(--spring);
+}
+.rail-btn .ri { display: grid; place-items: center; }
+.rail-btn .rl { font-size: 10.5px; letter-spacing: .02em; transition: opacity .2s var(--ease); }
+.rail-btn:hover { background: rgba(43, 122, 120, .08); color: var(--brand-deep); }
+.rail-btn:active { transform: scale(.94); }
+.rail-btn.is-on {
+  background: #fff;
+  color: var(--brand-deep);
+  box-shadow: 0 4px 14px -8px rgba(31, 92, 90, .6), 0 1px 0 #fff inset;
+}
+.rail-btn.is-on::before {
+  content: "";
+  position: absolute;
+  left: -10px; top: 50%;
+  width: 3px; height: 20px;
+  margin-top: -10px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+  animation: railIn .3s var(--ease-out) backwards;
+}
+@keyframes railIn { from { height: 0; margin-top: 0; opacity: 0; } }
+
+.rail-foot { margin-top: auto; }
+.rail-avatar {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .9);
+  background: linear-gradient(150deg, var(--brand-soft), var(--brand));
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -8px rgba(31, 92, 90, .8);
+  transition: transform .2s var(--spring);
+}
+.rail-avatar:hover { transform: scale(1.06); }
+
+/* ============================================================
+   主区域
+   ============================================================ */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px 12px;
+}
+.tb-left { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.tb-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
+.tb-sub { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+.id-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .75);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.id-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.id-pill.is-in .dot { background: var(--ok); }
+
+.tb-link {
+  font-size: 12px;
+  color: var(--brand-deep);
+  text-decoration: none;
+  padding: 6px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--brand-light);
+  background: rgba(255, 255, 255, .6);
+  transition: background .2s var(--ease);
+}
+.tb-link:hover { background: var(--brand-tint); }
+
+.views { flex: 1; min-height: 0; position: relative; }
+.view { display: none; height: 100%; padding: 0 22px 22px; overflow-y: auto; }
+.view.is-on { display: block; animation: viewIn .4s var(--ease-out) backwards; }
+.view[data-view="map"].is-on { display: flex; flex-direction: column; }
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   地图视图
+   ============================================================ */
+
+.mapstage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: #EAF1F0;
+  box-shadow: 0 24px 60px -30px rgba(15, 40, 38, .35), 0 1px 0 #fff inset;
+}
+.map-holder { position: absolute; inset: 0; }
+
+/* 地图上的点位：外圈光晕 + 实心点，已解决的转成描边空心 */
+.wm-dot {
+  position: relative;
+  display: block;
+  width: 16px; height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: var(--c, var(--brand));
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 10px rgba(15, 40, 38, .35);
+  transition: transform .18s var(--spring);
+}
+.wm-dot:hover { transform: scale(1.18); }
+.wm-dot i {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--c, var(--brand));
+  opacity: .45;
+  animation: wmPulse 2.4s ease-out infinite;
+}
+@keyframes wmPulse {
+  0%   { transform: scale(.55); opacity: .55; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.wm-dot.is-done { background: #fff; border-color: var(--c, var(--ok)); box-shadow: 0 2px 8px rgba(15, 40, 38, .22); }
+.wm-dot.is-done i { display: none; }
+
+/* 选点模式：容器加一圈提示，光标变十字 */
+.map-holder.is-picking { cursor: crosshair; }
+.map-holder.is-picking::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px rgba(43, 122, 120, .65);
+  animation: pickGlow 1.6s ease-in-out infinite;
+  z-index: 4;
+}
+@keyframes pickGlow {
+  0%, 100% { box-shadow: inset 0 0 0 3px rgba(43, 122, 120, .55); }
+  50%      { box-shadow: inset 0 0 0 3px rgba(43, 122, 120, .9); }
+}
+
+/* 缩略图里的 SVG 要撑满，不然会按 240×180 的固有尺寸排版 */
+.shot svg,
+.trow .thumb svg,
+.ctx-pic svg,
+.card-pic svg { width: 100%; height: 100%; display: block; }
+.card-pic { aspect-ratio: 4 / 3; }
+
+
+.map-top {
+  position: absolute;
+  top: 14px; left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  z-index: 5;
+}
+
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .82);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, .9);
+  box-shadow: 0 6px 18px -10px rgba(15, 40, 38, .35);
+}
+.seg-btn {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease);
+}
+.seg-btn:hover { color: var(--brand-deep); }
+.seg-btn.is-on { background: var(--brand); color: #fff; font-weight: 500; }
+.seg--sm .seg-btn { padding: 5px 10px; font-size: 11.5px; }
+
+.mapbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, .9);
+  background: rgba(255, 255, 255, .82);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px -10px rgba(15, 40, 38, .35);
+  transition: color .2s var(--ease), transform .18s var(--spring);
+}
+.mapbtn:hover { color: var(--brand-deep); }
+.mapbtn:active { transform: scale(.96); }
+.mapbtn.is-on { color: var(--brand-deep); background: #fff; }
+
+.map-stats {
+  position: absolute;
+  left: 14px; bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .78);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, .9);
+  box-shadow: 0 14px 34px -20px rgba(15, 40, 38, .4);
+  z-index: 5;
+}
+.ms-item { display: flex; align-items: baseline; gap: 5px; }
+.ms-item b { font-family: var(--font-num); font-size: 19px; font-weight: 600; letter-spacing: -.5px; }
+.ms-item b.is-ok { color: var(--ok); }
+.ms-item span { font-size: 11px; color: var(--text-3); }
+.ms-sep { width: 1px; height: 18px; background: var(--line); }
+
+.map-tip {
+  position: absolute;
+  right: 14px; bottom: 16px;
+  font-size: 11px;
+  color: var(--text-3);
+  background: rgba(255, 255, 255, .7);
+  padding: 5px 10px;
+  border-radius: 8px;
+  z-index: 5;
+  transition: opacity .3s var(--ease);
+}
+
+/* ============================================================
+   卡片通用
+   ============================================================ */
+
+.card {
+  padding: 15px 16px;
+  border-radius: var(--r-l);
+  background: var(--card);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, .85);
+  box-shadow: 0 12px 32px -22px rgba(15, 40, 38, .38), 0 1px 0 #fff inset;
+  margin-bottom: 12px;
+}
+.card-hd { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.card-t { font-size: 13.5px; font-weight: 600; letter-spacing: -.1px; }
+.card-s { font-size: 11.5px; color: var(--text-3); line-height: 1.55; margin-top: 3px; }
+.card-s b { color: var(--brand-deep); font-family: var(--font-num); letter-spacing: .06em; }
+.mt6 { margin-top: 6px; }
+
+.tag {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tag--soft { background: rgba(255, 255, 255, .8); color: var(--text-3); border: 1px solid var(--line); }
+.tag--dept { background: var(--brand-light); color: var(--brand-deep); font-weight: 500; }
+.tag--ok { background: var(--ok-bg); color: var(--ok); }
+.tag--warn { background: var(--warn-bg); color: var(--warn); }
+.tag--danger { background: var(--danger-bg); color: var(--danger); }
+.tag--review { background: var(--review-bg); color: var(--review); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform .16s var(--spring), background .2s var(--ease), box-shadow .2s var(--ease);
+}
+.btn:active { transform: scale(.97); }
+.btn--primary {
+  background: linear-gradient(150deg, var(--brand), var(--brand-deep));
+  color: #fff;
+  box-shadow: 0 10px 22px -12px rgba(31, 92, 90, .85);
+}
+.btn--primary:hover { box-shadow: 0 14px 28px -12px rgba(31, 92, 90, .9); }
+.btn--primary[aria-disabled="true"] { opacity: .45; cursor: default; box-shadow: none; }
+.btn--ghost {
+  background: rgba(255, 255, 255, .85);
+  border-color: var(--line);
+  color: var(--text);
+}
+.btn--ghost:hover { border-color: var(--brand-soft); color: var(--brand-deep); }
+.btn--block { width: 100%; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   上报视图
+   ============================================================ */
+
+.report-grid[hidden] { display: none; }
+.report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+  padding-bottom: 10px;
+}
+.rp-side { position: sticky; top: 0; }
+
+.shots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 10px; }
+.shot {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--r-m);
+  overflow: hidden;
+  background: #EDF4F3;
+  cursor: pointer;
+  aspect-ratio: 4 / 3;
+  transition: border-color .2s var(--ease), transform .2s var(--spring);
+}
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot:hover { transform: translateY(-2px); }
+.shot.is-on { border-color: var(--brand); box-shadow: 0 8px 20px -12px rgba(31, 92, 90, .8); }
+.shot .cap {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 3px 5px;
+  font-size: 9.5px;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(10, 30, 28, .72));
+}
+
+.drop {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  padding: 16px;
+  border-radius: var(--r-m);
+  border: 1.5px dashed var(--line);
+  background: rgba(255, 255, 255, .5);
+  text-align: center;
+  transition: border-color .2s var(--ease), background .2s var(--ease);
+}
+.drop.is-over { border-color: var(--brand); background: var(--brand-tint); }
+.drop .dz-ic { color: var(--text-3); }
+.drop .dz-t { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.drop .dz-s { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+
+.types { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.type {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: rgba(255, 255, 255, .7);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease), transform .2s var(--spring);
+}
+.type:hover { transform: translateY(-1px); border-color: var(--brand-soft); }
+.type.is-on { border-color: var(--brand); background: var(--brand-tint); color: var(--brand-deep); font-weight: 600; }
+.type .ti { display: grid; place-items: center; height: 20px; }
+
+.locrow { display: flex; gap: 8px; }
+.field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .9);
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.field:focus-within { border-color: var(--brand-soft); box-shadow: 0 0 0 3px rgba(43, 122, 120, .1); }
+.field span[data-icon] { color: var(--text-3); display: grid; place-items: center; }
+.field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+}
+.field input::placeholder { color: #B6C2C0; }
+.coord { margin-top: 8px; font-size: 10.5px; color: var(--text-3); font-family: var(--font-num); letter-spacing: .03em; }
+
+textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: rgba(255, 255, 255, .9);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  resize: vertical;
+  outline: none;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+textarea:focus { border-color: var(--brand-soft); box-shadow: 0 0 0 3px rgba(43, 122, 120, .1); }
+textarea::placeholder { color: #B6C2C0; }
+
+/* AI 面板 */
+.card--ai { background: linear-gradient(165deg, rgba(43, 122, 120, .10), rgba(255, 255, 255, .82) 55%); }
+.ai-state { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.ai-txt { font-size: 11.5px; line-height: 1.6; color: var(--text-2); }
+.ai-orb {
+  position: relative;
+  flex: none;
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #7FC3C0, var(--brand-deep));
+  color: #fff;
+  box-shadow: 0 8px 20px -10px rgba(31, 92, 90, .9);
+}
+.ai-orb i {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid rgba(43, 122, 120, .35);
+  animation: orbPulse 2.6s ease-out infinite;
+}
+.ai-orb i:nth-child(2) { animation-delay: 1.3s; }
+@keyframes orbPulse {
+  0% { transform: scale(.82); opacity: .8; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.ai-steps { display: flex; flex-direction: column; gap: 6px; }
+.ai-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  transition: color .3s var(--ease);
+}
+.ai-step .bullet {
+  width: 13px; height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  display: grid; place-items: center;
+}
+.ai-step.is-done { color: var(--ok); }
+.ai-step.is-done .bullet { border-color: var(--ok); background: var(--ok); }
+.ai-step.is-done .bullet::after {
+  content: "";
+  width: 6px; height: 3px;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
+}
+.ai-step.is-run { color: var(--brand-deep); }
+.ai-step.is-run .bullet { border-color: var(--brand); border-top-color: transparent; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.auto-list { list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 7px; }
+.auto-list li { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-2); }
+.auto-list li span[data-icon] { color: var(--brand); display: grid; place-items: center; }
+.submit-hint { margin-top: 8px; font-size: 10.5px; color: var(--text-3); text-align: center; }
+
+/* 结果态：盖住表单，但保留同样的两栏骨架 */
+.result-host { max-width: 860px; margin: 0 auto; animation: viewIn .4s var(--ease-out) backwards; }
+.result-host[hidden] { display: none; }
+.result-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+  border-radius: var(--r-xl);
+  background: linear-gradient(150deg, rgba(43, 122, 120, .14), rgba(255, 255, 255, .9) 60%);
+  border: 1px solid rgba(255, 255, 255, .9);
+  box-shadow: 0 24px 54px -30px rgba(15, 40, 38, .45);
+  margin-bottom: 12px;
+}
+.result-hero.is-warn { background: linear-gradient(150deg, rgba(201, 126, 21, .16), rgba(255, 255, 255, .9) 60%); }
+.tick {
+  flex: none;
+  width: 46px; height: 46px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 10px 22px -12px rgba(31, 92, 90, .9);
+}
+.result-hero.is-warn .tick { background: var(--warn); }
+.tick svg { width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.result-hero .rh-t { font-size: 20px; font-weight: 700; }
+.result-hero .rh-s { font-size: 12.5px; color: var(--text-2); margin-top: 3px; }
+
+.code-big {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--r-l);
+  background: #fff;
+  border: 1px solid var(--brand-light);
+  box-shadow: var(--sh-m);
+  margin-bottom: 12px;
+}
+.code-big .cb-k { font-size: 11px; color: var(--text-3); letter-spacing: .06em; }
+.code-big .cb-v { font-family: var(--font-num); font-size: 26px; font-weight: 700; letter-spacing: .16em; color: var(--brand-deep); line-height: 1.2; }
+.code-big .cb-n { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+.code-big .cb-copy {
+  margin-left: auto;
+  flex: none;
+  padding: 8px 14px;
+  border: 1px solid var(--brand-light);
+  border-radius: 9px;
+  background: var(--brand-tint);
+  color: var(--brand-deep);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .2s var(--ease);
+}
+.code-big .cb-copy:hover { background: var(--brand-light); }
+
+.result-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.result-body .card { margin-bottom: 0; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.chip-ok { padding: 4px 10px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); font-size: 11.5px; font-weight: 600; }
+.chip-pt { padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-size: 11.5px; font-weight: 600; }
+.result-acts { display: flex; gap: 10px; margin-top: 14px; }
+.result-acts .btn { flex: 1; }
+
+
+
+.tlist { display: flex; flex-direction: column; gap: 8px; }
+.trow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--r-m);
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, .7);
+  cursor: pointer;
+  animation: rowIn .34s var(--ease-out) backwards;
+  transition: border-color .2s var(--ease), background .2s var(--ease), transform .2s var(--ease);
+}
+.trow:hover { border-color: var(--brand-soft); background: #fff; transform: translateX(2px); }
+.trow:nth-child(1) { animation-delay: 0ms; }
+.trow:nth-child(2) { animation-delay: 30ms; }
+.trow:nth-child(3) { animation-delay: 60ms; }
+.trow:nth-child(4) { animation-delay: 90ms; }
+.trow:nth-child(5) { animation-delay: 120ms; }
+.trow:nth-child(n+6) { animation-delay: 150ms; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } }
+
+.trow .thumb {
+  width: 46px; height: 34px;
+  flex: none;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #EDF4F3;
+}
+.trow .thumb svg { width: 100%; height: 100%; display: block; }
+.trow .tmain { flex: 1; min-width: 0; }
+.trow .t1 { display: flex; align-items: center; gap: 8px; }
+.trow .ttype { font-size: 12.5px; font-weight: 600; }
+.trow .tstatus { font-size: 11px; }
+.trow .t2 { font-size: 11.5px; color: var(--text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .tcode {
+  flex: none;
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  color: var(--brand-deep);
+  background: var(--brand-tint);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+
+/* ============================================================
+   查询
+   ============================================================ */
+
+.query-wrap { max-width: 640px; }
+.query-row { display: flex; gap: 8px; margin-top: 12px; }
+.query-row input {
+  flex: 1;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+  font-family: var(--font-num);
+  font-size: 16px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text);
+  outline: none;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.query-row input::placeholder { color: #C2CDCB; letter-spacing: .04em; }
+.query-row input:focus { border-color: var(--brand-soft); box-shadow: 0 0 0 3px rgba(43, 122, 120, .1); }
+.query-demo { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11.5px; color: var(--text-3); }
+.chip-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  color: var(--brand-deep);
+  cursor: pointer;
+  transition: border-color .2s var(--ease), background .2s var(--ease);
+}
+.chip-code:hover { border-color: var(--brand-soft); background: var(--brand-tint); }
+.chip-code i { font-style: normal; font-family: var(--font); letter-spacing: 0; color: var(--text-3); font-size: 10.5px; }
+
+/* 查询结果 */
+.qr { animation: qrIn .42s var(--ease-out) backwards; }
+@keyframes qrIn { from { opacity: 0; transform: translateY(10px) scale(.99); } }
+.qr-hd { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.qr-code { font-family: var(--font-num); font-size: 22px; font-weight: 700; letter-spacing: .12em; color: var(--brand-deep); }
+.qr-type { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.qr-meta { display: grid; grid-template-columns: 82px 1fr; gap: 7px 10px; padding: 13px 0; border-top: 1px solid var(--line-2); font-size: 12px; }
+.qr-meta dt { color: var(--text-3); }
+.qr-meta dd { margin: 0; }
+.tl { position: relative; padding-left: 18px; }
+.tl::before { content: ""; position: absolute; left: 4.5px; top: 6px; bottom: 8px; width: 1px; background: linear-gradient(var(--line), transparent); }
+.tl-row { position: relative; padding-bottom: 14px; }
+.tl-row::before {
+  content: ""; position: absolute; left: -18px; top: 4px;
+  width: 9px; height: 9px; margin-left: -.5px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--line);
+}
+.tl-row:first-child::before { border-color: var(--brand); background: var(--brand); }
+.tl-row.is-ok::before { border-color: var(--ok); background: var(--ok); }
+.tl-t { font-size: 12.5px; line-height: 1.55; }
+.tl-time { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+
+/* ============================================================
+   我的
+   ============================================================ */
+
+.me-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.me-id { text-align: center; }
+.me-avatar {
+  width: 58px; height: 58px;
+  margin: 4px auto 10px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(150deg, var(--brand-soft), var(--brand));
+  color: #fff;
+  font-size: 21px;
+  font-weight: 600;
+  box-shadow: 0 12px 26px -14px rgba(31, 92, 90, .9);
+}
+.me-name { font-size: 16px; font-weight: 700; }
+.me-kind { font-size: 11.5px; color: var(--text-3); margin: 4px 0 14px; line-height: 1.6; }
+
+.credit-row { display: flex; align-items: flex-start; justify-content: space-between; }
+.credit-big { font-family: var(--font-num); font-size: 34px; font-weight: 600; letter-spacing: -1px; line-height: 1.1; }
+.credit-big small { font-size: 13px; color: var(--text-3); font-weight: 400; margin-left: 3px; }
+.tier { padding: 4px 10px; border-radius: 999px; background: rgba(255, 255, 255, .8); border: 1px solid var(--line); font-size: 11.5px; }
+.credit-bar { height: 6px; border-radius: 999px; background: var(--line-2); overflow: hidden; margin-top: 12px; }
+.credit-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand-soft), var(--brand)); transition: width .6s var(--ease-out); }
+
+.metric-v { font-size: 26px; font-weight: 600; letter-spacing: -.6px; margin: 6px 0 2px; }
+.tri { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; margin-top: 10px; }
+.tri b { display: block; font-size: 20px; font-weight: 600; }
+.tri b.is-ok { color: var(--ok); }
+.tri span { font-size: 10.5px; color: var(--text-3); }
+
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.badge-cell { width: 62px; text-align: center; }
+.badge-cell .bic {
+  width: 38px; height: 38px;
+  margin: 0 auto 4px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: var(--brand-deep);
+  border: 1px solid var(--brand-light);
+}
+.badge-cell .bn { font-size: 10px; color: var(--text-2); }
+
+/* ============================================================
+   右侧上下文面板
+   ============================================================ */
+
+.ctx {
+  padding: 16px 16px 16px 0;
+  overflow-y: auto;
+  border-left: 1px solid rgba(22, 33, 31, .05);
+}
+.ctx-card { animation: ctxIn .38s var(--ease-out) backwards; }
+@keyframes ctxIn { from { opacity: 0; transform: translateX(10px); } }
+
+.ctx-hd { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.ctx-title { font-size: 13.5px; font-weight: 600; }
+.ctx-sub { font-size: 11px; color: var(--text-3); margin-top: 3px; line-height: 1.5; }
+
+.ctx-pic { border-radius: var(--r-m); overflow: hidden; background: #EDF4F3; margin-bottom: 12px; }
+.ctx-pic svg, .ctx-pic img { width: 100%; display: block; }
+
+.kv { display: grid; grid-template-columns: 72px 1fr; gap: 8px 10px; font-size: 12px; }
+.kv dt { color: var(--text-3); }
+.kv dd { margin: 0; }
+
+.stars { display: inline-flex; align-items: center; gap: 2px; }
+.stars i { width: 9px; height: 9px; border-radius: 2px; background: var(--line); }
+.stars i.on { background: var(--warn); }
+.stars .n { margin-left: 5px; font-size: 11px; color: var(--text-3); font-family: var(--font-num); }
+
+.ctx-note {
+  margin-top: 12px;
+  padding: 10px 11px;
+  border-radius: var(--r-m);
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-light);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.ctx-note b { color: var(--brand-deep); }
+.ctx-actions { display: flex; gap: 8px; margin-top: 12px; }
+.ctx-actions .btn { flex: 1; height: 36px; font-size: 12px; }
+
+.ctx-empty {
+  padding: 34px 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+/* ============================================================
+   身份闸门
+   ============================================================ */
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(11, 20, 19, .5);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  backdrop-filter: blur(16px) saturate(120%);
+  animation: gateIn .3s var(--ease-out) backwards;
+}
+.gate[hidden] { display: none; }
+@keyframes gateIn { from { opacity: 0; } }
+
+.gate-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px 22px 18px;
+  border-radius: var(--r-xl);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 40px 90px -30px rgba(8, 24, 22, .6), 0 1px 0 #fff inset;
+  animation: cardRise .46s var(--spring) backwards;
+}
+@keyframes cardRise { from { opacity: 0; transform: translateY(20px) scale(.96); } }
+
+.gate-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.gate-mark {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  border-radius: 13px;
+  background: linear-gradient(150deg, var(--brand), var(--brand-deep));
+  color: #fff;
+  box-shadow: 0 10px 22px -10px rgba(31, 92, 90, .8);
+}
+.gate-t { font-size: 17px; font-weight: 700; }
+.gate-s { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+.gate-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 11px; background: var(--line-2); margin-bottom: 14px; }
+.gate-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.gate-tab.is-on { background: #fff; color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(15, 40, 38, .1); }
+
+.gate-pane { display: none; }
+.gate-pane.is-on { display: block; animation: paneIn .26s var(--ease-out) backwards; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(6px); } }
+
+.gate-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+  font-family: var(--font-num);
+  font-size: 15px;
+  letter-spacing: .05em;
+  color: var(--text);
+  outline: none;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.gate-input::placeholder { color: #B6C2C0; font-family: var(--font); letter-spacing: 0; font-size: 13px; }
+.gate-input:focus { border-color: var(--brand-soft); box-shadow: 0 0 0 3px rgba(43, 122, 120, .1); }
+.gate-code-row { display: flex; gap: 8px; }
+.gate-code-row .gate-input { flex: 1; }
+.gate-send {
+  flex: none;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--brand-light);
+  border-radius: 11px;
+  background: var(--brand-tint);
+  color: var(--brand-deep);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gate-send[disabled] { opacity: .5; cursor: default; }
+.gate-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.6; margin: 0 2px 12px; min-height: 17px; }
+.gate-hint.is-warn { color: var(--warn); }
+.gate-hint.is-ok { color: var(--ok); }
+.gate-hint b { color: var(--brand-deep); font-family: var(--font-num); letter-spacing: .08em; }
+.gate-note { font-size: 12px; line-height: 1.75; color: var(--text-2); margin-bottom: 14px; }
+.gate-note b { color: var(--brand-deep); }
+.gate-close {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.gate-close[hidden] { display: none; }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+
+.toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 300;
+  pointer-events: none;
+}
+.toast-host .toast {
+  padding: 9px 15px;
+  border-radius: 11px;
+  background: rgba(20, 40, 38, .92);
+  color: #fff;
+  font-size: 12.5px;
+  box-shadow: 0 16px 34px -16px rgba(8, 24, 22, .8);
+  animation: toastIn .3s var(--spring) backwards;
+}
+.toast-host .toast.is-ok { background: rgba(31, 92, 90, .95); }
+.toast-host .toast.is-warn { background: rgba(168, 100, 12, .95); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+
+/* 上报页自带右侧 AI 面板，再挂一栏上下文中转反而挤，这里让主区吃掉三栏 */
+.app.is-report { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+.app.is-report .ctx { display: none; }
+.app.is-report .report-grid { grid-template-columns: minmax(0, 1fr) 340px; }
+.app.is-report .shots { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.app.is-report .view { max-width: 1180px; }
+
+
+@media (max-width: 1280px) {
+  :root { --ctx-w: 290px; }
+  .types { grid-template-columns: repeat(5, 1fr); }
+}
+@media (max-width: 1080px) {
+  .app { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  .ctx { display: none; }
+  .report-grid { grid-template-columns: minmax(0, 1fr); }
+  .me-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .shots { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { display: none; }
+  .topbar { padding: 12px 14px 8px; }
+  .view { padding: 0 14px 16px; }
+  .me-grid { grid-template-columns: 1fr; }
+}
+
+</style>
+<!-- 单文件构建 · 2026-11-24 06:18:42 · CSS×2 JS×7 -->
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ============ 左侧图标栏 ============ -->
+  <aside class="rail">
+    <div class="rail-brand" title="见微">
+      <svg viewBox="0 0 24 24" width="21" height="21" fill="none" aria-hidden="true">
+        <path d="M12 3.2l7.2 2.6v5.8c0 4.6-3 7.7-7.2 9.2-4.2-1.5-7.2-4.6-7.2-9.2V5.8L12 3.2Z"
+              stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <circle cx="12" cy="11.4" r="2.5" fill="currentColor"/>
+      </svg>
+    </div>
+
+    <nav class="rail-nav" id="railNav">
+      <button class="rail-btn is-on" data-view="map" title="地图">
+        <span class="ri" data-icon="map"></span><span class="rl">地图</span>
+      </button>
+      <button class="rail-btn" data-view="report" title="上报">
+        <span class="ri" data-icon="plus"></span><span class="rl">上报</span>
+      </button>
+      <button class="rail-btn" data-view="tickets" title="我的工单">
+        <span class="ri" data-icon="list"></span><span class="rl">工单</span>
+      </button>
+      <button class="rail-btn" data-view="query" title="查进度">
+        <span class="ri" data-icon="search"></span><span class="rl">查进度</span>
+      </button>
+      <button class="rail-btn" data-view="me" title="我的">
+        <span class="ri" data-icon="user"></span><span class="rl">我的</span>
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <button class="rail-avatar" id="railAvatar" title="切换身份">游</button>
+    </div>
+  </aside>
+
+  <!-- ============ 主区域 ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="tb-left">
+        <h1 class="tb-title" id="viewTitle">地图</h1>
+        <span class="tb-sub" id="viewSub">郑州大学主校区 · 实时点位</span>
+      </div>
+      <div class="tb-right">
+        <div class="id-pill" id="idPill">
+          <span class="dot"></span><span id="idPillText">游客模式</span>
+        </div>
+        <a class="tb-link" href="../admin-web/index.html" target="_blank">打开管理后台 ↗</a>
+      </div>
+    </header>
+
+    <div class="views">
+
+      <!-- ---------- 地图 ---------- -->
+      <section class="view is-on" data-view="map">
+        <div class="mapstage">
+          <div class="map-holder" id="mapHolder"></div>
+
+          <div class="map-top">
+            <div class="seg" id="layerSeg">
+              <button class="seg-btn is-on" data-layer="pending">待处理</button>
+              <button class="seg-btn" data-layer="resolved">已解决</button>
+              <button class="seg-btn" data-layer="all">全部</button>
+            </div>
+            <div class="seg seg--sm">
+              <button class="seg-btn is-on" data-base="gaode">标准</button>
+              <button class="seg-btn" data-base="satellite">卫星</button>
+              <button class="seg-btn" data-base="plain">路网</button>
+            </div>
+            <button class="mapbtn" id="btnHeat" title="热力层">
+              <span data-icon="spark"></span>热力
+            </button>
+            <button class="mapbtn" id="btnLocate" title="定位">
+              <span data-icon="locate"></span>定位
+            </button>
+          </div>
+
+          <div class="map-stats">
+            <div class="ms-item"><b class="num" id="msPending">0</b><span>处待处理</span></div>
+            <div class="ms-sep"></div>
+            <div class="ms-item"><b class="num is-ok" id="msResolved">0</b><span>处已解决</span></div>
+            <div class="ms-sep"></div>
+            <div class="ms-item"><b class="num" id="msMerged">0</b><span>组已合并</span></div>
+          </div>
+
+          <div class="map-tip" id="mapTip">点任意标记看详情 · 拖拽平移 · 滚轮缩放</div>
+        </div>
+      </section>
+
+      <!-- ---------- 上报 ---------- -->
+      <section class="view" data-view="report">
+        <!-- 提交后的结果落在这里，盖住表单 -->
+        <div class="result-host" id="resultHost" hidden></div>
+
+        <div class="report-grid" id="reportGrid">
+          <div class="rp-main">
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">现场照片</div>
+                  <div class="card-s">选一张示意图，或把自己的照片拖进来</div>
+                </div>
+                <span class="tag tag--soft" id="photoState">未选择</span>
+              </div>
+              <div class="shots" id="shotList"></div>
+              <div class="drop" id="dropZone">
+                <span class="dz-ic" data-icon="image"></span>
+                <div class="dz-t">把照片拖到这里</div>
+                <div class="dz-s">本地图片不会上传到任何服务器，只在浏览器里做质量分析</div>
+                <input type="file" id="fileInput" accept="image/*" hidden>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">问题类型</div>
+                  <div class="card-s">选完自动匹配责任部门</div>
+                </div>
+                <span class="tag tag--dept" id="deptTag" hidden></span>
+              </div>
+              <div class="types" id="typeList"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">位置</div>
+                  <div class="card-s" id="locSub">自动定位，或在地图上点一下</div>
+                </div>
+                <span class="tag tag--soft" id="locState">未定位</span>
+              </div>
+              <div class="locrow">
+                <label class="field">
+                  <span data-icon="pin"></span>
+                  <input id="addrInput" placeholder="例如：图书馆南广场东侧" spellcheck="false">
+                </label>
+                <button class="btn btn--ghost" id="btnPickMap">在图上选点</button>
+              </div>
+              <div class="coord" id="coordLine">坐标会在展示时模糊到约 100 米</div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">
+                <div>
+                  <div class="card-t">补充说明</div>
+                  <div class="card-s">写清楚"什么样、影响谁"，AI 判断会更准</div>
+                </div>
+                <span class="tag tag--soft"><b id="descCount">0</b>/100</span>
+              </div>
+              <textarea id="descInput" maxlength="100" rows="3"
+                        placeholder="例如：路灯不亮，晚上这段路完全黑的，骑车容易撞上"></textarea>
+            </div>
+
+          </div>
+
+          <!-- 右侧：AI 与提交 -->
+          <div class="rp-side">
+            <div class="card card--ai">
+              <div class="card-t">哨兵智能体</div>
+              <div class="ai-state" id="aiState">
+                <div class="ai-orb"><i></i><i></i><span data-icon="spark"></span></div>
+                <div class="ai-txt">提交后先做本地图像质量分析，再交给 DeepSeek 判断语义是否一致</div>
+              </div>
+              <div class="ai-steps" id="aiSteps"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-t">一下这些都会自动算</div>
+              <ul class="auto-list">
+                <li><span data-icon="check"></span>责任部门（按类型固定绑定）</li>
+                <li><span data-icon="check"></span>紧急度与 P0–P4 优先级</li>
+                <li><span data-icon="check"></span>是否与已有工单合并</li>
+                <li><span data-icon="check"></span>查询编码（不登录也能查）</li>
+              </ul>
+              <button class="btn btn--primary btn--block" id="btnSubmit">提交上报</button>
+              <div class="submit-hint" id="submitHint">还需要：照片、类型、位置</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 我的工单 ---------- -->
+      <section class="view" data-view="tickets">
+        <div class="card">
+          <div class="card-hd">
+            <div>
+              <div class="card-t">我提交过的</div>
+              <div class="card-s" id="ticketsSub">共 0 条</div>
+            </div>
+            <div class="seg seg--sm" id="ticketSeg">
+              <button class="seg-btn is-on" data-tstatus="all">全部</button>
+              <button class="seg-btn" data-tstatus="pending">待派单</button>
+              <button class="seg-btn" data-tstatus="processing">处理中</button>
+              <button class="seg-btn" data-tstatus="resolved">已解决</button>
+            </div>
+          </div>
+          <div class="tlist" id="ticketList"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 查进度 ---------- -->
+      <section class="view" data-view="query">
+        <div class="query-wrap">
+          <div class="card">
+            <div class="card-t">凭编码查进度</div>
+            <div class="card-s">提交成功后会给一串形如 <b>JW-8F3K2M</b> 的编码，不登录也能查</div>
+            <div class="query-row">
+              <input id="queryInput" placeholder="JW-8F3K2M" maxlength="12" spellcheck="false" autocomplete="off">
+              <button class="btn btn--primary" id="btnQuery">查询</button>
+            </div>
+            <div class="query-demo">
+              <span>试试：</span>
+              <button class="chip-code" data-fill="JW-8F3K2M">JW-8F3K2M<i>处理中</i></button>
+              <button class="chip-code" data-fill="JW-Q7M4TP">JW-Q7M4TP<i>已解决</i></button>
+            </div>
+          </div>
+          <div id="queryResult"></div>
+        </div>
+      </section>
+
+      <!-- ---------- 我的 ---------- -->
+      <section class="view" data-view="me">
+        <div class="me-grid">
+          <div class="card me-id">
+            <div class="me-avatar" id="meAvatar">游</div>
+            <div class="me-name" id="meName">游客</div>
+            <div class="me-kind" id="meKind">未登录 · 数据只存在这台设备</div>
+            <button class="btn btn--ghost btn--block" id="btnIdentity">登录 / 切换账号</button>
+          </div>
+
+          <div class="card">
+            <div class="credit-row">
+              <div>
+                <div class="card-s">信用分</div>
+                <div class="credit-big"><span class="num" id="meCredit">70</span><small>/ 100</small></div>
+              </div>
+              <div class="tier" id="meTier">见习哨兵</div>
+            </div>
+            <div class="credit-bar"><i id="meCreditBar"></i></div>
+            <div class="card-s mt6" id="meCreditNote">有效上报 +2 · 被复核判定无效 −5</div>
+          </div>
+
+          <div class="card metric">
+            <div class="card-s">积分</div>
+            <div class="metric-v num" id="mePoints">0</div>
+            <div class="card-s">有效 +10 · 解决 +30 · 乱报 −20</div>
+          </div>
+
+          <div class="card metric">
+            <div class="card-s">账号权重</div>
+            <div class="metric-v num" id="meWeight">1.00</div>
+            <div class="card-s" id="meWeightNote">正常 · 合并时计入人数</div>
+          </div>
+
+          <div class="card">
+            <div class="card-t">上报统计</div>
+            <div class="tri">
+              <div><b class="num" id="meValid">0</b><span>有效上报</span></div>
+              <div><b class="num is-ok" id="meResolved">0</b><span>已解决</span></div>
+              <div><b class="num" id="meInvalid">0</b><span>无效提交</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-t">已获得徽章</div>
+            <div class="badges" id="meBadges"></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ============ 右侧上下文面板 ============ -->
+  <aside class="ctx" id="ctx">
+    <div class="ctx-card" id="ctxCard"></div>
+  </aside>
+
+</div>
+
+<!-- ============ 身份闸门 ============ -->
+<div class="gate" id="gate" hidden>
+  <div class="gate-card">
+    <div class="gate-brand">
+      <div class="gate-mark">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+          <path d="M12 3.2l7.2 2.6v5.8c0 4.6-3 7.7-7.2 9.2-4.2-1.5-7.2-4.6-7.2-9.2V5.8L12 3.2Z"
+                stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="12" cy="11.4" r="2.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="gate-t">见微 · 网页版</div>
+        <div class="gate-s">登录后信用分与积分才会长期累积</div>
+      </div>
+    </div>
+
+    <div class="gate-tabs">
+      <button class="gate-tab is-on" data-gtab="school">学号</button>
+      <button class="gate-tab" data-gtab="phone">手机号</button>
+      <button class="gate-tab" data-gtab="guest">游客</button>
+    </div>
+
+    <div class="gate-pane is-on" data-gpane="school">
+      <input class="gate-input" id="gSchoolId" maxlength="12" placeholder="10 位学号" autocomplete="off">
+      <div class="gate-hint" id="gSchoolHint">校内统一身份 · 无需密码</div>
+      <button class="btn btn--primary btn--block" id="gSchoolBtn">一键登录</button>
+    </div>
+
+    <div class="gate-pane" data-gpane="phone">
+      <input class="gate-input" id="gPhone" maxlength="11" placeholder="11 位手机号" autocomplete="off">
+      <div class="gate-code-row">
+        <input class="gate-input" id="gCode" maxlength="6" placeholder="6 位验证码" autocomplete="off">
+        <button class="gate-send" id="gSend">获取验证码</button>
+      </div>
+      <div class="gate-hint" id="gPhoneHint">演示环境会直接显示验证码</div>
+      <button class="btn btn--primary btn--block" id="gPhoneBtn">登录</button>
+    </div>
+
+    <div class="gate-pane" data-gpane="guest">
+      <div class="gate-note">
+        不登录也能上报和查进度。提交后会给你一串<b>查询编码</b>，
+        但信用分只存在这台设备上，换浏览器就没了。
+      </div>
+      <button class="btn btn--primary btn--block" id="gGuestBtn">以游客身份进入</button>
+    </div>
+
+    <button class="gate-close" id="gClose" hidden>返回</button>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script data-from="../shared/tilemap.js">
+/* ==========================================================================
+ * 见微 · 轻量瓦片地图
+ * --------------------------------------------------------------------------
+ * 为什么自己写而不引 Leaflet / 高德 JS API：
+ *   1. Leaflet 走 CDN，单文件离线演示会挂；高德 JS API 需要 key，GitHub Pages
+ *      上把 key 明文放进前端等于公开，谁都能盗刷。
+ *   2. 这个项目只需要「铺一张真实底图 + 打点 + 叠热力」，四个能力。Leaflet
+ *      130KB 里 90% 用不上，自己写 400 行还完全可控。
+ *
+ * 底图用高德栅格瓦片，坐标是 GCJ-02（国测局火星坐标）。浏览器
+ * navigator.geolocation 给的是 WGS-84，直接拿去打在 GCJ-02 底图上会偏
+ * 300~600 米 —— 在城市尺度看不出来，但校园尺度上就是「点错了一栋楼」。
+ * 所以内部统一做 WGS-84 → GCJ-02 转换。
+ *
+ * 生产环境请换成申请了 key 的高德/天地图服务，别直连瓦片。
+ * ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  var TILE_SIZE = 256;
+  var PI = Math.PI;
+
+  /* ======================================================================
+   * 一、坐标转换
+   * ==================================================================== */
+
+  var CRS_A = 6378245.0;            // 克拉索夫斯基椭球长半轴
+  var CRS_EE = 0.00669342162296594323; // 第一偏心率平方
+
+  /** 粗略判断是否在中国境外（境外不做偏移） */
+  function outOfChina(lng, lat) {
+    return !(lng > 73.66 && lng < 135.05 && lat > 3.86 && lat < 53.55);
+  }
+
+  function transformLat(lng, lat) {
+    var ret = -100.0 + 2.0 * lng + 3.0 * lat + 0.2 * lat * lat +
+      0.1 * lng * lat + 0.2 * Math.sqrt(Math.abs(lng));
+    ret += (20.0 * Math.sin(6.0 * lng * PI) + 20.0 * Math.sin(2.0 * lng * PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(lat * PI) + 40.0 * Math.sin(lat / 3.0 * PI)) * 2.0 / 3.0;
+    ret += (160.0 * Math.sin(lat / 12.0 * PI) + 320 * Math.sin(lat * PI / 30.0)) * 2.0 / 3.0;
+    return ret;
+  }
+
+  function transformLng(lng, lat) {
+    var ret = 300.0 + lng + 2.0 * lat + 0.1 * lng * lng +
+      0.1 * lng * lat + 0.1 * Math.sqrt(Math.abs(lng));
+    ret += (20.0 * Math.sin(6.0 * lng * PI) + 20.0 * Math.sin(2.0 * lng * PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(lng * PI) + 40.0 * Math.sin(lng / 3.0 * PI)) * 2.0 / 3.0;
+    ret += (150.0 * Math.sin(lng / 12.0 * PI) + 300.0 * Math.sin(lng / 30.0 * PI)) * 2.0 / 3.0;
+    return ret;
+  }
+
+  /** WGS-84 → GCJ-02 */
+  function wgs2gcj(lng, lat) {
+    if (outOfChina(lng, lat)) return [lng, lat];
+    var dLat = transformLat(lng - 105.0, lat - 35.0);
+    var dLng = transformLng(lng - 105.0, lat - 35.0);
+    var radLat = lat / 180.0 * PI;
+    var magic = Math.sin(radLat);
+    magic = 1 - CRS_EE * magic * magic;
+    var sqrtMagic = Math.sqrt(magic);
+    dLat = (dLat * 180.0) / ((CRS_A * (1 - CRS_EE)) / (magic * sqrtMagic) * PI);
+    dLng = (dLng * 180.0) / (CRS_A / sqrtMagic * Math.cos(radLat) * PI);
+    return [lng + dLng, lat + dLat];
+  }
+
+  /** GCJ-02 → WGS-84（迭代反解，两次就够 1 米精度） */
+  function gcj2wgs(lng, lat) {
+    var wgsLng = lng, wgsLat = lat;
+    for (var i = 0; i < 2; i++) {
+      var g = wgs2gcj(wgsLng, wgsLat);
+      wgsLng += lng - g[0];
+      wgsLat += lat - g[1];
+    }
+    return [wgsLng, wgsLat];
+  }
+
+  /** 经纬度 → 世界像素坐标（Web Mercator，zoom 决定总像素边长） */
+  function project(lng, lat, zoom) {
+    var scale = TILE_SIZE * Math.pow(2, zoom);
+    var x = (lng + 180) / 360 * scale;
+    var s = Math.sin(lat * PI / 180);
+    s = Math.max(-0.9999, Math.min(0.9999, s));
+    var y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * PI)) * scale;
+    return { x: x, y: y };
+  }
+
+  /** Haversine 距离，米 */
+  function distance(lng1, lat1, lng2, lat2) {
+    var R = 6371000;
+    var dLat = (lat2 - lat1) * PI / 180;
+    var dLng = (lng2 - lng1) * PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * PI / 180) * Math.cos(lat2 * PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /* ======================================================================
+   * 二、瓦片源
+   * ==================================================================== */
+
+  var SOURCES = {
+    /** 高德矢量底图，含路网与 POI 注记 */
+    gaode: {
+      url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+      sub: [1, 2, 3, 4],
+      maxZoom: 19,
+      minZoom: 3
+    },
+    /** 高德卫星影像 */
+    satellite: {
+      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+      sub: [1, 2, 3, 4],
+      maxZoom: 19,
+      minZoom: 3
+    },
+    /** 无注记的浅色底图，适合叠热力 —— 注记会把色块搅浑 */
+    plain: {
+      url: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}',
+      sub: [1, 2, 3, 4],
+      maxZoom: 19,
+      minZoom: 3
+    }
+  };
+
+  function fillTemplate(url, x, y, z, s) {
+    return url
+      .replace('{s}', s)
+      .replace('{x}', x)
+      .replace('{y}', y)
+      .replace('{z}', z);
+  }
+
+  /* ======================================================================
+   * 三、地图实例
+   * ==================================================================== */
+
+  /**
+   * @param {HTMLElement} container 容器，需有明确宽高
+   * @param {Object} opts
+   *   center  [lng, lat] 中心点（WGS-84）
+   *   zoom    初始缩放级别，校园尺度 16~17 合适
+   *   source  'gaode' | 'satellite' | 'plain'
+   *   minZoom / maxZoom
+   *   draggable 是否可拖拽，默认 true
+   *   interactive 是否可缩放，默认 true
+   *   grid   瓦片加载失败时是否显示网格兜底，默认 true
+   */
+  function createTileMap(container, opts) {
+    opts = opts || {};
+    var source = SOURCES[opts.source || 'gaode'] || SOURCES.gaode;
+    var state = {
+      center: opts.center ? opts.center.slice() : [113.5315, 34.8172],
+      zoom: opts.zoom || 17,
+      minZoom: opts.minZoom || source.minZoom,
+      maxZoom: opts.maxZoom || source.maxZoom,
+      // 视口左上角在世界坐标系里的像素位置
+      originX: 0,
+      originY: 0,
+      width: 0,
+      height: 0,
+      tiles: {},        // key: z/x/y → img 元素
+      markers: [],
+      heat: [],
+      failedTiles: 0,
+      loadedTiles: 0,
+      ready: false
+    };
+
+    var layerTiles = document.createElement('div');
+    layerTiles.className = 'tm-tiles';
+
+    var layerHeat = document.createElement('canvas');
+    layerHeat.className = 'tm-heat';
+
+    var layerMarks = document.createElement('div');
+    layerMarks.className = 'tm-marks';
+
+    var gridHint = document.createElement('div');
+    gridHint.className = 'tm-grid';
+    gridHint.style.display = 'none';
+
+    container.classList.add('tm-root');
+    container.appendChild(gridHint);
+    container.appendChild(layerTiles);
+    container.appendChild(layerHeat);
+    container.appendChild(layerMarks);
+
+    var ctx = layerHeat.getContext('2d');
+
+    /* -------- 尺寸与原点 -------- */
+
+    function measure() {
+      var r = container.getBoundingClientRect();
+      state.width = Math.max(1, Math.round(r.width));
+      state.height = Math.max(1, Math.round(r.height));
+      layerHeat.width = state.width * (global.devicePixelRatio || 1);
+      layerHeat.height = state.height * (global.devicePixelRatio || 1);
+      layerHeat.style.width = state.width + 'px';
+      layerHeat.style.height = state.height + 'px';
+    }
+
+    /**
+     * 以视口中心为准，重算 originX/originY。
+     * 注意：state.center 存的是 WGS-84（和定位 API 一致），
+     * 但瓦片和投影都在 GCJ-02 上，所以这里必须先转换。
+     * 漏了这一步，地图和标记会整体错开 300~600 米。
+     */
+    function syncOrigin() {
+      var g = wgs2gcj(state.center[0], state.center[1]);
+      var c = project(g[0], g[1], state.zoom);
+      state.originX = c.x - state.width / 2;
+      state.originY = c.y - state.height / 2;
+    }
+
+    /** 经纬度 → 容器内像素 */
+    function toPixel(lng, lat) {
+      var p = project(lng, lat, state.zoom);
+      return { x: p.x - state.originX, y: p.y - state.originY };
+    }
+
+    /** 容器内像素 → 经纬度 */
+    function toLngLat(px, py) {
+      var scale = TILE_SIZE * Math.pow(2, state.zoom);
+      var wx = state.originX + px;
+      var wy = state.originY + py;
+      var lng = wx / scale * 360 - 180;
+      var n = PI - 2 * PI * wy / scale;
+      var lat = 180 / PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return [lng, lat];
+    }
+
+    /* -------- 瓦片 -------- */
+
+    function renderTiles() {
+      var z = Math.round(state.zoom);
+      var scale = Math.pow(2, z);
+      var tileX0 = Math.floor(state.originX / TILE_SIZE);
+      var tileY0 = Math.floor(state.originY / TILE_SIZE);
+      var tileX1 = Math.floor((state.originX + state.width) / TILE_SIZE);
+      var tileY1 = Math.floor((state.originY + state.height) / TILE_SIZE);
+      var wanted = {};
+
+      for (var tx = tileX0; tx <= tileX1; tx++) {
+        for (var ty = tileY0; ty <= tileY1; ty++) {
+          if (ty < 0 || ty >= scale) continue;
+          var wx = ((tx % scale) + scale) % scale;
+          var key = z + '/' + wx + '/' + ty;
+          wanted[key] = true;
+
+          if (state.tiles[key]) continue;
+
+          var img = document.createElement('img');
+          img.className = 'tm-tile';
+          img.alt = '';
+          img.decoding = 'async';
+          img.draggable = false;
+          var sub = source.sub[(tx + ty) % source.sub.length];
+          img.src = fillTemplate(source.url, wx, ty, z, sub);
+          img._key = key;
+          img._tx = tx;
+          img._ty = ty;
+          img._z = z;
+
+          img.addEventListener('load', function () {
+            state.loadedTiles++;
+            this.classList.add('is-on');
+            if (state.failedTiles > 0 && state.loadedTiles > 2) hideGrid();
+          });
+          img.addEventListener('error', function () {
+            state.failedTiles++;
+            this.classList.add('is-bad');
+            if (state.failedTiles > 3 && state.loadedTiles === 0) showGrid();
+          });
+
+          layerTiles.appendChild(img);
+          state.tiles[key] = img;
+        }
+      }
+
+      // 位置每次都要重算（拖拽时瓦片只移不改 src）
+      for (var k in state.tiles) {
+        var t = state.tiles[k];
+        if (!wanted[k]) {
+          // 缩放过期的瓦片直接移除，避免内存堆积
+          if (t._z !== z) {
+            t.parentNode && t.parentNode.removeChild(t);
+            delete state.tiles[k];
+            continue;
+          }
+        }
+        t.style.transform = 'translate3d(' +
+          (t._tx * TILE_SIZE - state.originX) + 'px,' +
+          (t._ty * TILE_SIZE - state.originY) + 'px,0)';
+      }
+    }
+
+    function showGrid() {
+      gridHint.style.display = 'block';
+      gridHint.innerHTML = '<span>底图未能加载 · 点位分布仍可查看</span>';
+    }
+    function hideGrid() {
+      gridHint.style.display = 'none';
+    }
+
+    /* -------- 标记 -------- */
+
+    /**
+     * @param {Array} list [{ id, lng, lat, html, className, onClick, title }]
+     *   坐标传 WGS-84；内部自动转 GCJ-02 再投影
+     */
+    function setMarkers(list) {
+      layerMarks.innerHTML = '';
+      state.markers = list || [];
+      state.markers.forEach(function (m) {
+        var el = document.createElement('div');
+        el.className = 'tm-mark ' + (m.className || '');
+        el.innerHTML = m.html || '';
+        if (m.title) el.title = m.title;
+        // 逐条写，避免 cssText 覆盖掉组件后面要设的 left/top
+        if (m.style) {
+          Object.keys(m.style).forEach(function (k) {
+            el.style[k] = m.style[k];
+          });
+        }
+        var c = m.lnglat || wgs2gcj(m.lng, m.lat);
+        m._c = c;
+        if (m.onClick) {
+          el.addEventListener('click', function (e) {
+            e.stopPropagation();
+            m.onClick(m);
+          });
+        }
+        layerMarks.appendChild(el);
+        m._el = el;
+      });
+      placeMarkers();
+    }
+
+    function placeMarkers() {
+      state.markers.forEach(function (m) {
+        if (!m._el) return;
+        var p = toPixel(m._c[0], m._c[1]);
+        // 只写 left/top，居中偏移交给 CSS 的 translate(-50%,-50%)，
+        // 这样标记自身的出现动画还能继续用 transform
+        m._el.style.left = p.x + 'px';
+        m._el.style.top = p.y + 'px';
+        // 屏幕外的标记直接藏起来，省得堆在容器边缘堆成一坨
+        var pad = 80;
+        var visible = p.x > -pad && p.x < state.width + pad &&
+                      p.y > -pad && p.y < state.height + pad;
+        m._el.style.visibility = visible ? 'visible' : 'hidden';
+      });
+    }
+
+    /* -------- 热力 -------- */
+
+    /**
+     * @param {Array} pts [{ lng, lat, value }] value 0~1，越大越红
+     * @param {Object} cfg { radius, max, color }
+     */
+    function setHeat(pts, cfg) {
+      state.heat = pts || [];
+      state.heatCfg = cfg || {};
+      renderHeat();
+    }
+
+    function renderHeat() {
+      var dpr = global.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, state.width, state.height);
+      if (!state.heat.length) return;
+
+      var radius = (state.heatCfg.radius || 46);
+      var maxVal = state.heatCfg.max || 1;
+
+      // 第一步：把每个点画成灰度径向渐变。
+      // 用 lighter 让重叠处的 alpha 累加 —— 默认的 source-over 会让
+      // 两个半透明圆叠在一起反而更淡，热力图就出不来「这里最密」的效果。
+      ctx.globalCompositeOperation = 'lighter';
+      state.heat.forEach(function (h) {
+        var c = h.lnglat || wgs2gcj(h.lng, h.lat);
+        var p = toPixel(c[0], c[1]);
+        if (p.x < -radius || p.y < -radius ||
+            p.x > state.width + radius || p.y > state.height + radius) return;
+        var v = Math.max(0.05, Math.min(1, (h.value || 0.5) / maxVal));
+        var r = radius * (0.62 + v * 0.5);
+        var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+        g.addColorStop(0, 'rgba(0,0,0,' + (0.85 * v) + ')');
+        g.addColorStop(0.45, 'rgba(0,0,0,' + (0.42 * v) + ')');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, PI * 2);
+        ctx.fill();
+      });
+
+      ctx.globalCompositeOperation = 'source-over';
+
+      // 第二步：按累积的 alpha 查色带，把灰度染成热力色
+      var img = ctx.getImageData(0, 0, layerHeat.width, layerHeat.height);
+      var d = img.data;
+      var ramp = state.heatCfg.ramp || [
+        [0.00, [ 43, 122, 120]],   // 青绿：低密度
+        [0.34, [ 62, 160, 130]],
+        [0.52, [222, 186,  74]],   // 黄：中密度
+        [0.72, [226, 138,  54]],   // 橙
+        [1.00, [201,  60,  52]]    // 红：高密度
+      ];
+      for (var i = 0; i < d.length; i += 4) {
+        var a = d[i + 3];
+        if (!a) continue;
+        var t = a / 255;
+        var c1 = ramp[0], c2 = ramp[ramp.length - 1];
+        for (var j = 0; j < ramp.length - 1; j++) {
+          if (t >= ramp[j][0] && t <= ramp[j + 1][0]) { c1 = ramp[j]; c2 = ramp[j + 1]; break; }
+        }
+        var span = (c2[0] - c1[0]) || 1;
+        var f = Math.max(0, Math.min(1, (t - c1[0]) / span));
+        d[i]     = c1[1][0] + (c2[1][0] - c1[1][0]) * f;
+        d[i + 1] = c1[1][1] + (c2[1][1] - c1[1][1]) * f;
+        d[i + 2] = c1[1][2] + (c2[1][2] - c1[1][2]) * f;
+        d[i + 3] = Math.min(255, a * 1.9);
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    /* -------- 渲染总入口 -------- */
+
+    function render() {
+      if (!state.width) measure();
+      syncOrigin();
+      renderTiles();
+      placeMarkers();
+      renderHeat();
+    }
+
+    /* -------- 交互 -------- */
+
+    var drag = null;
+
+    function onDown(e) {
+      if (opts.draggable === false) return;
+      if (e.button != null && e.button !== 0) return;
+      var pt = e.touches ? e.touches[0] : e;
+      var r = container.getBoundingClientRect();
+      drag = {
+        x: pt.clientX, y: pt.clientY,
+        ox: state.originX, oy: state.originY,
+        localX: pt.clientX - r.left,
+        localY: pt.clientY - r.top,
+        moved: false
+      };
+      container.classList.add('is-dragging');
+      if (e.touches) {
+        container.addEventListener('touchmove', onMove, { passive: false });
+        container.addEventListener('touchend', onUp);
+      } else {
+        global.addEventListener('mousemove', onMove);
+        global.addEventListener('mouseup', onUp);
+      }
+    }
+
+    function onMove(e) {
+      if (!drag) return;
+      var pt = e.touches ? e.touches[0] : e;
+      var dx = pt.clientX - drag.x;
+      var dy = pt.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (e.cancelable) e.preventDefault();
+      state.originX = drag.ox - dx;
+      state.originY = drag.oy - dy;
+      renderTiles();
+      placeMarkers();
+      renderHeat();
+    }
+
+    function onUp() {
+      if (!drag) return;
+      var moved = drag.moved;
+      var localX = drag.localX;
+      var localY = drag.localY;
+      drag = null;
+      container.classList.remove('is-dragging');
+      container.removeEventListener('touchmove', onMove);
+      container.removeEventListener('touchend', onUp);
+      global.removeEventListener('mousemove', onMove);
+      global.removeEventListener('mouseup', onUp);
+      // 拖完把中心点回写。toLngLat 给的是 GCJ，要转回 WGS 再存，
+      // 否则下一次 syncOrigin 会把它当成 WGS 再转一次，越转越偏。
+      var mid = toLngLat(state.width / 2, state.height / 2);
+      var w = gcj2wgs(mid[0], mid[1]);
+      state.center = [w[0], w[1]];
+      // 没拖动才算「点击」，并把 GCJ-02 转回 WGS-84 交给业务层，
+      // 否则外面拿到的坐标和定位 API 给的坐标系不一致
+      if (!moved && typeof opts.onClick === 'function') {
+        var ll = toLngLat(localX, localY);
+        var wgs = gcj2wgs(ll[0], ll[1]);
+        opts.onClick(wgs[0], wgs[1]);
+      }
+    }
+
+    function zoomTo(z, anchorPx, anchorPy) {
+      z = Math.max(state.minZoom, Math.min(state.maxZoom, z));
+      if (z === state.zoom) return;
+      var ax = anchorPx == null ? state.width / 2 : anchorPx;
+      var ay = anchorPy == null ? state.height / 2 : anchorPy;
+      var before = toLngLat(ax, ay);          // GCJ
+      state.zoom = z;
+      // 缩放后保持锚点下的地理位置不动
+      var after = project(before[0], before[1], z);
+      state.originX = after.x - ax;
+      state.originY = after.y - ay;
+      var mid = toLngLat(state.width / 2, state.height / 2);
+      var w = gcj2wgs(mid[0], mid[1]);
+      state.center = [w[0], w[1]];
+      render();
+    }
+
+    container.addEventListener('mousedown', onDown);
+    container.addEventListener('touchstart', onDown, { passive: true });
+
+    if (opts.interactive !== false) {
+      container.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        var r = container.getBoundingClientRect();
+        var delta = e.deltaY > 0 ? -1 : 1;
+        zoomTo(state.zoom + delta, e.clientX - r.left, e.clientY - r.top);
+      }, { passive: false });
+
+      // 双击放大
+      container.addEventListener('dblclick', function (e) {
+        var r = container.getBoundingClientRect();
+        zoomTo(state.zoom + 1, e.clientX - r.left, e.clientY - r.top);
+      });
+    }
+
+    /* -------- 尺寸变化 -------- */
+
+    var ro = null;
+    if (global.ResizeObserver) {
+      ro = new ResizeObserver(function () {
+        var oldW = state.width, oldH = state.height;
+        measure();
+        if (oldW !== state.width || oldH !== state.height) render();
+      });
+      ro.observe(container);
+    } else {
+      global.addEventListener('resize', function () { measure(); render(); });
+    }
+
+    /* -------- 对外 API -------- */
+
+    var api = {
+      el: container,
+      /** 重新测量容器尺寸（display:none → block 之后必须调一次） */
+      resize: function () {
+        measure();
+        syncOrigin();
+        render();
+        return api;
+      },
+      render: render,
+      setMarkers: setMarkers,
+      setHeat: setHeat,
+      /**
+       * 运行期换底图（标准 / 卫星 / 路网）。
+       * 换源要把已加载的瓦片全部丢掉，否则旧图会留在屏幕上，
+       * 新瓦片因为 key 已存在而被跳过。
+       */
+      setSource: function (name) {
+        var next = SOURCES[name] || SOURCES.gaode;
+        if (next === source) return api;
+        source = next;
+        state.minZoom = source.minZoom;
+        state.maxZoom = source.maxZoom;
+        Object.keys(state.tiles).forEach(function (k) {
+          var img = state.tiles[k];
+          if (img && img.parentNode) img.parentNode.removeChild(img);
+        });
+        state.tiles = {};
+        renderTiles();
+        return api;
+      },
+      /** 平滑移动到某点 */
+      flyTo: function (lng, lat, zoom) {
+        state.center = [lng, lat];
+        if (zoom) state.zoom = Math.max(state.minZoom, Math.min(state.maxZoom, zoom));
+        render();
+        return api;
+      },
+      zoomIn: function () { zoomTo(state.zoom + 1); return api; },
+      zoomOut: function () { zoomTo(state.zoom - 1); return api; },
+      getZoom: function () { return state.zoom; },
+      /** 容器内像素坐标换算 */
+      toPixel: function (lng, lat) {
+        var c = wgs2gcj(lng, lat);
+        return toPixel(c[0], c[1]);
+      },
+      toLngLat: toLngLat,
+      center: function () { return state.center.slice(); },
+      destroy: function () {
+        if (ro) ro.disconnect();
+        container.innerHTML = '';
+      }
+    };
+
+    measure();
+    render();
+    state.ready = true;
+    return api;
+  }
+
+  /* ======================================================================
+   * 四、导出
+   * ==================================================================== */
+
+  var TM = {
+    create: createTileMap,
+    wgs2gcj: wgs2gcj,
+    gcj2wgs: gcj2wgs,
+    project: project,
+    distance: distance,
+    SOURCES: SOURCES,
+    /** 郑州大学主校区中心（WGS-84） */
+    CAMPUS: { lng: 113.5315, lat: 34.8172, name: '郑州大学主校区' }
+  };
+
+  if (typeof module === 'object' && module.exports) module.exports = TM;
+  global.TileMap = TM;
+
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script data-from="../shared/domain.js">
+/* ==========================================================================
+ * 见微 · 领域词汇表
+ * --------------------------------------------------------------------------
+ * 三端共用同一份定义。以前类型和部门散落在各处，改一个地方就会对不上，
+ * 所以这里集中：问题类型 → 默认负责部门 → 默认基准紧急度。
+ * ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  /* ----------------------------------------------------------------------
+   * 一、负责部门
+   * -------------------------------------------------------------------- */
+
+  var DEPTS = [
+    { id: 'logistics-power',   name: '后勤保障部 · 水电班组', short: '水电班组', color: '#2E6FB7' },
+    { id: 'logistics-clean',   name: '后勤保障部 · 环卫班组', short: '环卫班组', color: '#3E9B6B' },
+    { id: 'logistics-repair',  name: '后勤保障部 · 维修班组', short: '维修班组', color: '#7A6BC4' },
+    { id: 'logistics-green',   name: '后勤保障部 · 绿化班组', short: '绿化班组', color: '#4E9A3E' },
+    { id: 'security-patrol',   name: '保卫处 · 安全巡查队',   short: '安全巡查队', color: '#C9553D' },
+    { id: 'security-traffic',  name: '保卫处 · 交通管理',     short: '交通管理', color: '#C97B20' },
+    { id: 'infra-road',        name: '基建处 · 道路维护',     short: '道路维护', color: '#8A7350' },
+    { id: 'it-network',        name: '信息化办公室 · 网络运维', short: '网络运维', color: '#2B7A78' },
+    { id: 'coordination',      name: '综合协调办 · 待分派',   short: '待分派', color: '#6B7C7A' }
+  ];
+
+  var DEPT_MAP = {};
+  DEPTS.forEach(function (d) { DEPT_MAP[d.id] = d; });
+
+  /* ----------------------------------------------------------------------
+   * 二、问题类型
+   * -------------------------------------------------------------------- */
+
+  /**
+   * base: 该类型的基准紧急度（1~5 星）。合并与多人反馈会在这个基础上加。
+   *       「安全隐患」基准就是 4，因为它天然比「卫生」更该先处理。
+   */
+  var TYPES = [
+    {
+      id: 'safety', label: '安全隐患', icon: 'alert',
+      color: '#C9553D', soft: 'rgba(201,85,61,.12)',
+      dept: 'security-patrol', base: 4,
+      hint: '井盖缺失、护栏松动、电线外露、墙体开裂',
+      sla: 4
+    },
+    {
+      id: 'lighting', label: '照明路灯', icon: 'bulb',
+      color: '#C97B20', soft: 'rgba(201,123,32,.12)',
+      dept: 'logistics-power', base: 3,
+      hint: '路灯不亮、灯罩破损、路灯闪烁',
+      sla: 24
+    },
+    {
+      id: 'road', label: '道路破损', icon: 'road',
+      color: '#8A7350', soft: 'rgba(138,115,80,.12)',
+      dept: 'infra-road', base: 3,
+      hint: '路面坑洼、地砖松动、台阶破损、路面积水',
+      sla: 48
+    },
+    {
+      id: 'water', label: '给排水', icon: 'drop',
+      color: '#2E6FB7', soft: 'rgba(46,111,183,.12)',
+      dept: 'logistics-power', base: 3,
+      hint: '水管漏水、下水返味、直饮水故障、积水',
+      sla: 24
+    },
+    {
+      id: 'facility', label: '设施损坏', icon: 'wrench',
+      color: '#7A6BC4', soft: 'rgba(122,107,196,.12)',
+      dept: 'logistics-repair', base: 2,
+      hint: '座椅断裂、垃圾桶破损、门禁失灵、无障碍设施缺失',
+      sla: 72
+    },
+    {
+      id: 'sanitation', label: '环境卫生', icon: 'trash',
+      color: '#3E9B6B', soft: 'rgba(62,155,107,.12)',
+      dept: 'logistics-clean', base: 2,
+      hint: '垃圾满溢、异味、地面污渍、小广告',
+      sla: 12
+    },
+    {
+      id: 'green', label: '绿化养护', icon: 'leaf',
+      color: '#4E9A3E', soft: 'rgba(78,154,62,.12)',
+      dept: 'logistics-green', base: 1,
+      hint: '树木倒伏、枝干断裂、草坪损毁',
+      sla: 72
+    },
+    {
+      id: 'traffic', label: '交通秩序', icon: 'car',
+      color: '#C97B20', soft: 'rgba(201,123,32,.12)',
+      dept: 'security-traffic', base: 2,
+      hint: '机动车乱停、闸机故障、减速带缺失、非机动车占道',
+      sla: 24
+    },
+    {
+      id: 'network', label: '网络通信', icon: 'wifi',
+      color: '#2B7A78', soft: 'rgba(43,122,120,.12)',
+      dept: 'it-network', base: 2,
+      hint: '校园网中断、弱电箱破损、广播无声、监控黑屏',
+      sla: 24
+    },
+    {
+      id: 'other', label: '其他问题', icon: 'dots',
+      color: '#6B7C7A', soft: 'rgba(107,124,122,.12)',
+      dept: 'coordination', base: 1,
+      hint: '不属于以上分类的公共设施问题',
+      sla: 72
+    }
+  ];
+
+  var TYPE_MAP = {};
+  TYPES.forEach(function (t) { TYPE_MAP[t.id] = t; });
+
+  /* ----------------------------------------------------------------------
+   * 三、优先级
+   * -------------------------------------------------------------------- */
+
+  /**
+   * 由紧急度（1~5）推出优先级。管理端列表默认按优先级排。
+   * 之所以不让用户直接选优先级：用户只会全选「非常紧急」，
+   * 这个字段必须由系统算，才可信。
+   */
+  function priorityOf(severity) {
+    var s = Math.round(severity || 1);
+    if (s >= 5) return { id: 'P0', label: '紧急', color: '#C0392B', weight: 5 };
+    if (s === 4) return { id: 'P1', label: '高',   color: '#C9553D', weight: 4 };
+    if (s === 3) return { id: 'P2', label: '中',   color: '#C97B20', weight: 3 };
+    if (s === 2) return { id: 'P3', label: '较低', color: '#3E9B6B', weight: 2 };
+    return { id: 'P4', label: '低', color: '#6B7C7A', weight: 1 };
+  }
+
+  /* ----------------------------------------------------------------------
+   * 四、合并规则
+   * -------------------------------------------------------------------- */
+
+  var MERGE = {
+    radius: 15,            // 米：同一处判定半径
+    windowHours: 24,       // 小时：合并时间窗
+    maxSeverity: 5,
+    /** 每多一名不同用户反馈，紧急度 +1，上限 5 */
+    crowdBoost: 1
+  };
+
+  /**
+   * 判定两条上报是否应合并。
+   * @param {Object} a 已存在的上报 { type, lng, lat, openid, ts }
+   * @param {Object} b 新上报
+   * @param {Function} dist 距离函数（米），由 TileMap.distance 提供
+   */
+  function shouldMerge(a, b, dist) {
+    if (a.type !== b.type) return { merge: false };
+    var d = dist(a.lng, a.lat, b.lng, b.lat);
+    if (d > MERGE.radius) return { merge: false, distance: d };
+
+    var hours = Math.abs(b.ts - a.ts) / 3600000;
+    if (hours > MERGE.windowHours) return { merge: false, distance: d };
+
+    // 同一人重复报同一处：合并，但不提优先级（防止刷分刷优先级）
+    if (a.openid && b.openid && a.openid === b.openid) {
+      return { merge: true, kind: 'self', distance: d, reason: '同一用户重复上报' };
+    }
+    // 不同人报同一处：合并，并且随人数抬升优先级
+    return { merge: true, kind: 'crowd', distance: d, reason: '多人反馈同一问题' };
+  }
+
+  /** 合并后重算紧急度 */
+  function mergedSeverity(baseSeverity, reporterCount) {
+    var s = (baseSeverity || 1) + Math.max(0, (reporterCount || 1) - 1) * MERGE.crowdBoost;
+    return Math.min(MERGE.maxSeverity, s);
+  }
+
+  /* ----------------------------------------------------------------------
+   * 五、对外
+   * -------------------------------------------------------------------- */
+
+  var D = {
+    DEPTS: DEPTS,
+    TYPES: TYPES,
+    TYPE_MAP: TYPE_MAP,
+    DEPT_MAP: DEPT_MAP,
+    MERGE: MERGE,
+    dept: function (id) { return DEPT_MAP[id] || DEPT_MAP.coordination; },
+    type: function (id) { return TYPE_MAP[id] || TYPE_MAP.other; },
+    /** 某类型默认派给谁 */
+    deptFor: function (typeId) {
+      var t = TYPE_MAP[typeId] || TYPE_MAP.other;
+      return DEPT_MAP[t.dept] || DEPT_MAP.coordination;
+    },
+    priorityOf: priorityOf,
+    shouldMerge: shouldMerge,
+    mergedSeverity: mergedSeverity
+  };
+
+  if (typeof module === 'object' && module.exports) module.exports = D;
+  global.Domain = D;
+
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script data-from="../shared/auth.js">
+/* ==========================================================================
+ * 见微 · 身份与激励
+ * --------------------------------------------------------------------------
+ * 为什么需要这一层：
+ *
+ * 众包报修最怕两件事——「不知道是谁报的」（责任无从追溯）和「报假了没代价」
+ * （刷单、报复性乱报）。这个模块用三层数字把它们分开：
+ *
+ *   信用分 credit  0–100   资格。低于 60 的提交一律进人工复核。
+ *   积分   points  只增     收益。有效上报 +10，问题被解决 +30，乱报 −20。
+ *   权重   weight  0.3–1.5  投票权。乱报会衰减；权重低的账号不给别人的工单"抬票"。
+ *
+ * 三者互不替代：信用分低但积分高的人可以继续报（只是要人看一眼），
+ * 权重低的人报同一处问题不会把优先级刷上去——这就是防刷的核心。
+ *
+ * 身份有三种：
+ *   school  学号一键登录（演示环境不校验密码，真实环境接教务 CAS）
+ *   phone   手机号 + 短信验证码
+ *   guest   不登录。本机生成设备 ID，提交后拿到查询编码，凭编码查进度。
+ *
+ * 所有数据存 localStorage，换浏览器就没了——这是演示版，不是真实账号系统。
+ * ========================================================================== */
+
+window.Auth = (function () {
+  'use strict';
+
+  const KEY = 'jw.auth.v2';
+  const CODE_KEY = 'jw.codes.v2';
+
+  /* ---------------- 存储 ---------------- */
+
+  function read(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  function write(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch (e) { return false; }
+  }
+
+  /* ---------------- 设备指纹（游客身份） ---------------- */
+
+  function deviceId() {
+    let id = read('jw.dev', null);
+    if (id) return id;
+    const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+    id = 'DEV-' + rand;
+    write('jw.dev', id);
+    return id;
+  }
+
+  /* ---------------- 初始档案 ---------------- */
+
+  function blank(kind, id, name) {
+    return {
+      kind: kind,                 // school | phone | guest
+      id: id,
+      name: name,
+      credit: 70,                 // 信用分：新人从 70 起，及格线 60
+      points: 0,                  // 积分：只增不减（乱报会扣，但不会到负数）
+      weight: 1,                  // 账号权重：影响合并时是否计入人数
+      validCnt: 0,
+      resolvedCnt: 0,
+      invalidCnt: 0,
+      at: Date.now()
+    };
+  }
+
+  let session = read(KEY, null);
+
+  const listeners = [];
+  function emit() {
+    listeners.forEach(function (fn) { try { fn(session); } catch (e) {} });
+  }
+
+  /* ---------------- 登录 ---------------- */
+
+  /** 学号校验：郑大学号 10 位数字；演示环境接受 8–12 位 */
+  function checkSchoolId(v) {
+    const s = String(v || '').trim();
+    if (!/^\d{8,12}$/.test(s)) return { ok: false, msg: '学号应该是 8–12 位数字' };
+    return { ok: true, id: s };
+  }
+
+  /** 手机号校验：11 位，1 开头，第二位 3–9 */
+  function checkPhone(v) {
+    const s = String(v || '').replace(/\s|-/g, '');
+    if (!/^1[3-9]\d{9}$/.test(s)) return { ok: false, msg: '手机号格式不对，应该是 11 位' };
+    return { ok: true, id: s };
+  }
+
+  /** 从手机号里取一个可展示的别名，避免在界面上暴露完整号码 */
+  function maskPhone(p) { return p.slice(0, 3) + '****' + p.slice(-4); }
+
+  /** 演示用：同一学号第二次登录要能拿回原来的记录，所以按 id 存档案 */
+  function profileKey(kind, id) { return kind + ':' + id; }
+
+  function login(opts) {
+    const kind = opts.kind;
+    const store = read(KEY + '.profiles', {}) || {};
+    let prof;
+
+    if (kind === 'school') {
+      const c = checkSchoolId(opts.id);
+      if (!c.ok) return { ok: false, msg: c.msg };
+      prof = store[profileKey('school', c.id)] || blank('school', c.id, opts.name || ('学号 ' + c.id.slice(-4) + ' 同学'));
+      prof.kind = 'school';
+      prof.id = c.id;
+    } else if (kind === 'phone') {
+      const c = checkPhone(opts.id);
+      if (!c.ok) return { ok: false, msg: c.msg };
+      if (!opts.code) return { ok: false, needCode: true, msg: '请输入验证码' };
+      if (String(opts.code).length !== 6) return { ok: false, msg: '验证码是 6 位' };
+      prof = store[profileKey('phone', c.id)] || blank('phone', c.id, maskPhone(c.id));
+      prof.kind = 'phone';
+      prof.id = c.id;
+      prof.name = maskPhone(c.id);
+    } else {
+      const id = deviceId();
+      prof = store[profileKey('guest', id)] || blank('guest', id, '游客');
+      prof.kind = 'guest';
+      prof.id = id;
+      prof.name = '游客';
+      prof.guest = true;
+    }
+
+    store[profileKey(prof.kind, prof.id)] = prof;
+    write(KEY + '.profiles', store);
+
+    session = prof;
+    write(KEY, session);
+    emit();
+    return { ok: true, user: session };
+  }
+
+  function loginGuest() { return login({ kind: 'guest' }); }
+
+  function logout() {
+    session = null;
+    write(KEY, null);
+    emit();
+  }
+
+  /** 页面刷新后恢复；没有会话返回 null */
+  function get() { return session; }
+
+  function isGuest() { return !session || session.kind === 'guest'; }
+
+  function relabel(name) {
+    if (!session) return;
+    session.name = name;
+    persist();
+  }
+
+  /** 批量写入档案字段（徽章、连续天数这类只属于展示层的状态） */
+  function patch(obj) {
+    if (!session) return null;
+    Object.keys(obj || {}).forEach(function (k) { session[k] = obj[k]; });
+    persist();
+    return session;
+  }
+
+  function persist() {
+    if (!session) return;
+    const store = read(KEY + '.profiles', {}) || {};
+    store[profileKey(session.kind, session.id)] = session;
+    write(KEY + '.profiles', store);
+    write(KEY, session);
+    emit();
+  }
+
+  /* ---------------- 积分 / 信用 / 权重 ---------------- */
+
+  const TIERS = [
+    { min: 90, name: '金牌哨兵', color: '#B4832A' },
+    { min: 75, name: '守信哨兵', color: '#2B7A78' },
+    { min: 60, name: '见习哨兵', color: '#6B7C7A' },
+    { min: 0,  name: '待提升',   color: '#C9553D' }
+  ];
+
+  function tierOf(credit) {
+    for (let i = 0; i < TIERS.length; i++) if (credit >= TIERS[i].min) return TIERS[i];
+    return TIERS[TIERS.length - 1];
+  }
+
+  /**
+   * 一次有效上报的结算。
+   * @param {boolean} merged    是否并入了已有工单
+   * @param {boolean} crowd     是否属于"多人报同一处"
+   */
+  function rewardValid(opts) {
+    if (!session) return null;
+    const o = opts || {};
+    session.validCnt = (session.validCnt || 0) + 1;
+
+    // 学分：有效 +2，封顶 100
+    const creditGain = o.merged ? 1 : 2;
+    session.credit = Math.min(100, session.credit + creditGain);
+
+    // 积分：独立分 +10；顺手帮别人合并算半份，避免刷单
+    const pointGain = o.merged ? 5 : 10;
+    session.points = (session.points || 0) + pointGain;
+
+    // 权重缓慢回血，但不会因为一次有效上报就洗白
+    session.weight = Math.min(1.5, (session.weight || 1) + 0.02);
+
+    persist();
+    return { creditGain: creditGain, pointGain: pointGain };
+  }
+
+  /** 问题被确认解决后的追加结算 */
+  function rewardResolved() {
+    if (!session) return;
+    session.resolvedCnt = (session.resolvedCnt || 0) + 1;
+    session.points = (session.points || 0) + 30;
+    session.credit = Math.min(100, session.credit + 3);
+    persist();
+  }
+
+  /**
+   * 被判定为无效 / 恶意上报。
+   * 注意：AI 拦下来不算惩罚——AI 是建议，误判成本不该让用户承担。
+   * 只有人工复核确认「乱报」才走这里。
+   */
+  function penalize(reason) {
+    if (!session) return null;
+    session.invalidCnt = (session.invalidCnt || 0) + 1;
+    session.credit = Math.max(0, session.credit - 5);
+    session.points = Math.max(0, (session.points || 0) - 20);
+    session.weight = Math.max(0.3, +((session.weight || 1) * 0.82).toFixed(3));
+    persist();
+    return { credit: -5, points: -20, weight: session.weight, reason: reason || '' };
+  }
+
+  /** 权重是否够格给别人的工单"抬票" */
+  function countsAsVoter() {
+    return !!session && (session.weight || 1) >= 0.6;
+  }
+
+  /** 是否需要强制人工复核 */
+  function needsHumanReview() {
+    return !session || session.credit < 60 || (session.weight || 1) < 0.6;
+  }
+
+  function weightLabel(w) {
+    if (w >= 1.2) return '高';
+    if (w >= 0.9) return '正常';
+    if (w >= 0.6) return '偏低';
+    return '受限';
+  }
+
+  /* ---------------- 查询编码 ---------------- */
+
+  // 去掉容易混淆的 0/O、1/I，用户口头念、手抄都不容易错
+  const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+  function newCode() {
+    let s = '';
+    for (let i = 0; i < 6; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    return 'JW-' + s;
+  }
+
+  function loadCodes() { return read(CODE_KEY, {}) || {}; }
+
+  /**
+   * 提交成功时登记一条编码。
+   * 一条编码对应一张工单，里面记了上报人（游客也能追溯到自己这台设备）。
+   */
+  function registerTicket(t) {
+    const codes = loadCodes();
+    let code = t.code || newCode();
+    while (codes[code]) code = newCode();          // 撞号就重生成
+    const rec = {
+      code: code,
+      type: t.type,
+      addr: t.addr,
+      lng: t.lng, lat: t.lat,
+      dept: t.dept,
+      status: 'pending',              // pending | processing | resolved | review
+      severity: t.severity,
+      merged: !!t.merged,
+      reporters: t.reporters || 1,
+      ownerId: t.ownerId,
+      ownerKind: t.ownerKind,
+      at: Date.now(),
+      timeline: [{ at: Date.now(), label: '已提交，进入待派单池', tone: 'ok' }]
+    };
+    codes[code] = rec;
+    write(CODE_KEY, codes);
+    return rec;
+  }
+
+  function normalizeCode(v) {
+    return String(v || '').trim().toUpperCase().replace(/\s/g, '').replace(/^([A-Z0-9]{6})$/, 'JW-$1');
+  }
+
+  function findTicket(code) {
+    const c = normalizeCode(code);
+    const codes = loadCodes();
+    if (codes[c]) return codes[c];
+    // 演示兜底：几个写死的编码，方便在别人电脑上演示查询效果
+    return DEMO_TICKETS[c] || null;
+  }
+
+  function myTickets() {
+    const codes = loadCodes();
+    const id = session ? session.id : deviceId();
+    return Object.keys(codes)
+      .map(function (k) { return codes[k]; })
+      .filter(function (t) { return t.ownerId === id; })
+      .sort(function (a, b) { return b.at - a.at; });
+  }
+
+  function advanceTicket(code, status, label) {
+    const codes = loadCodes();
+    const c = normalizeCode(code);
+    if (!codes[c]) return null;
+    codes[c].status = status;
+    codes[c].timeline.push({ at: Date.now(), label: label, tone: status === 'resolved' ? 'ok' : '' });
+    write(CODE_KEY, codes);
+    return codes[c];
+  }
+
+  /* 演示用固定编码：换台电脑也能查到进度 */
+  const DEMO_TICKETS = {
+    'JW-8F3K2M': {
+      code: 'JW-8F3K2M',
+      type: 'lighting',
+      addr: '图书馆南广场 · 东侧路灯',
+      dept: '后勤保障部 · 水电班组',
+      status: 'processing',
+      severity: 3,
+      merged: true,
+      reporters: 4,
+      at: Date.now() - 26 * 3600 * 1000,
+      demo: true,
+      timeline: [
+        { at: Date.now() - 26 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
+        { at: Date.now() - 24 * 3600 * 1000, label: '又有 1 位同学上报同一处，紧急度升到 3 星' },
+        { at: Date.now() - 20 * 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
+        { at: Date.now() - 5 * 3600 * 1000, label: '维修师傅已到现场，等待更换灯管' }
+      ]
+    },
+    'JW-Q7M4TP': {
+      code: 'JW-Q7M4TP',
+      type: 'water',
+      addr: '柳园宿舍区 · 12 号楼东侧',
+      dept: '后勤保障部 · 水电班组',
+      status: 'resolved',
+      severity: 4,
+      merged: false,
+      reporters: 1,
+      at: Date.now() - 3 * 24 * 3600 * 1000,
+      demo: true,
+      timeline: [
+        { at: Date.now() - 3 * 24 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
+        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口，回填塌陷' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，感谢你的上报', tone: 'ok' }
+      ]
+    }
+  };
+
+  /* ---------------- 对外 ---------------- */
+
+  return {
+    get: get,
+    login: login,
+    loginGuest: loginGuest,
+    logout: logout,
+    relabel: relabel,
+    patch: patch,
+    isGuest: isGuest,
+    deviceId: deviceId,
+    onChange: function (fn) { listeners.push(fn); },
+
+    checkSchoolId: checkSchoolId,
+    checkPhone: checkPhone,
+    maskPhone: maskPhone,
+
+    rewardValid: rewardValid,
+    rewardResolved: rewardResolved,
+    penalize: penalize,
+    countsAsVoter: countsAsVoter,
+    needsHumanReview: needsHumanReview,
+    weightLabel: weightLabel,
+    tierOf: tierOf,
+    TIERS: TIERS,
+
+    newCode: newCode,
+    registerTicket: registerTicket,
+    findTicket: findTicket,
+    myTickets: myTickets,
+    advanceTicket: advanceTicket,
+    normalizeCode: normalizeCode
+  };
+})();
+
+</script>
+<script data-from="../shared/agent.js">
+/* ==========================================================================
+ * 见微 · 哨兵智能体（Sentinel Agent）
+ * --------------------------------------------------------------------------
+ * 职责：在一条上报进入数据库之前，判断它值不值得占用管理端的处理资源。
+ *
+ * 拆成两道闸门，而不是「一个模型全包」：
+ *   闸门一 · 视觉质量   —— 用真实图像算法算，不调模型
+ *   闸门二 · 语义一致性 —— 交给 DeepSeek
+ *
+ * 为什么视觉不交给 DeepSeek：DeepSeek 的对话模型不接受图片输入。
+ * 硬要接就得换 GLM-4V / 通义千问 VL，那是另一个供应商的 key。
+ * 而「这张图糊没糊」本来就该用确定性算法判断 —— 拉普拉斯方差是
+ * 摄影行业的标准做法，比模型更准，还零成本、零延迟。
+ *
+ * 于是视觉闸门输出一组客观指标（清晰度、亮度、饱和度、平坦区占比），
+ * 这组指标连同样本描述一起喂给 DeepSeek，让它去判断「这像不像一张
+ * 拍设施的现场照片」。模型不需要看见像素，也能从统计特征上分辨
+ * 「风景照」「截图」「自拍」和「坏掉的路灯」。
+ * ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  /* ======================================================================
+   * 一、图像客观指标
+   * ==================================================================== */
+
+  /**
+   * 算一张图的清晰度/亮度/饱和度等信息。
+   * @param {HTMLImageElement|HTMLCanvasElement|string} source
+   * @returns {Promise<Object>} 指标
+   */
+  function analyzeImage(source) {
+    return new Promise(function (resolve) {
+      var img = source;
+      var isCanvas = source && source.getContext;
+      var isString = typeof source === 'string';
+
+      function go() {
+        try {
+          resolve(measure(img));
+        } catch (e) {
+          resolve(fallbackMetrics());
+        }
+      }
+
+      if (isCanvas) return go();
+      if (isString) {
+        img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = go;
+        img.onerror = function () { resolve(fallbackMetrics()); };
+        img.src = source;
+        return;
+      }
+      if (img && img.complete) return go();
+      if (img && img.addEventListener) {
+        img.addEventListener('load', go, { once: true });
+        img.addEventListener('error', function () { resolve(fallbackMetrics()); }, { once: true });
+        return;
+      }
+      resolve(fallbackMetrics());
+    });
+  }
+
+  function fallbackMetrics() {
+    return {
+      ok: false, sharpness: 0, sharpScore: 0, brightness: 0,
+      saturation: 0, flatRatio: 1, edgeDensity: 0, dominant: 'unknown'
+    };
+  }
+
+  /** 把任意图源缩到 240px 宽再算，省时间也统一尺度 */
+  function measure(img) {
+    var W = 240;
+    var ratio = (img.height || img.naturalHeight || 180) / (img.width || img.naturalWidth || 320);
+    var H = Math.max(2, Math.round(W * ratio));
+    var cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    var cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(img, 0, 0, W, H);
+    var data = cx.getImageData(0, 0, W, H).data;
+
+    // ---- 灰度 + 色彩统计 ----
+    var gray = new Float32Array(W * H);
+    var sumBright = 0, sumSat = 0;
+    var greenish = 0, blueish = 0, whitish = 0;
+    for (var i = 0, p = 0; i < data.length; i += 4, p++) {
+      var r = data[i], g = data[i + 1], b = data[i + 2];
+      var lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      gray[p] = lum;
+      sumBright += lum;
+
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      var sat = mx === 0 ? 0 : (mx - mn) / mx;
+      sumSat += sat;
+
+      if (g > r + 18 && g > b + 18) greenish++;
+      if (b > r + 22 && b > g + 8) blueish++;
+      if (mn > 200 && sat < 0.12) whitish++;
+    }
+    var n = W * H;
+    var brightness = sumBright / n / 255;
+    var saturation = sumSat / n;
+    var greenRatio = greenish / n;
+    var blueRatio = blueish / n;
+    var whiteRatio = whitish / n;
+
+    // ---- 清晰度：分块算拉普拉斯方差，取最清晰的那一批 ----
+    //
+    // 为什么不用"全图方差"：一张对焦完美的照片，如果画面大部分是天空或者
+    // 白墙，全图方差一样很低，会被误判成糊。而人要判断"糊没糊"，其实看的是
+    // 画面里最锐利的那部分 —— 只要有一块边缘是清楚的，就说明对上了焦。
+    // 所以按 16px 切块，每块单独算，最后取前 30% 的均值。
+    var BW = 16;
+    var blockVars = [];
+    var edges = 0;
+    for (var by0 = 1; by0 + BW < H - 1; by0 += BW) {
+      for (var bx0 = 1; bx0 + BW < W - 1; bx0 += BW) {
+        var bs = 0, bs2 = 0, bc = 0;
+        for (var yy0 = by0; yy0 < by0 + BW; yy0++) {
+          for (var xx0 = bx0; xx0 < bx0 + BW; xx0++) {
+            var ii = yy0 * W + xx0;
+            var lv = -4 * gray[ii] + gray[ii - 1] + gray[ii + 1] + gray[ii - W] + gray[ii + W];
+            bs += lv; bs2 += lv * lv; bc++;
+            // 顺带统计边缘
+            if (Math.abs(lv) > 26) edges++;
+          }
+        }
+        if (bc > 8) blockVars.push(Math.max(0, bs2 / bc - (bs / bc) * (bs / bc)));
+      }
+    }
+
+    blockVars.sort(function (a, b) { return b - a; });
+    var topN = Math.max(1, Math.round(blockVars.length * 0.3));
+    var topMean = 0;
+    for (var bi = 0; bi < topN; bi++) topMean += blockVars[bi];
+    topMean = topN ? topMean / topN : 0;
+
+    var edgeDensity = edges / n;
+
+    // ---- 平坦区占比：截图和纯色背景的典型特征 ----
+    // 按 12px 网格分块，块内方差极小的算「平坦」
+    var BLK = 12, flatBlocks = 0, totalBlocks = 0;
+    for (var by = 0; by + BLK <= H; by += BLK) {
+      for (var bx = 0; bx + BLK <= W; bx += BLK) {
+        var s = 0, s2 = 0, c = 0;
+        for (var yy = by; yy < by + BLK; yy++) {
+          for (var xx = bx; xx < bx + BLK; xx++) {
+            var gv = gray[yy * W + xx];
+            s += gv; s2 += gv * gv; c++;
+          }
+        }
+        var m = s / c;
+        var va = s2 / c - m * m;
+        if (va < 34) flatBlocks++;
+        totalBlocks++;
+      }
+    }
+    var flatRatio = totalBlocks ? flatBlocks / totalBlocks : 1;
+
+    // 归一化到 0~100。开方是为了压缩动态范围：
+    // 清晰照片的 topMean 能到几百，糊图只有个位数，线性映射会挤成一团。
+    var sharpScore = Math.max(0, Math.min(100, Math.round(Math.sqrt(topMean) * 3)));
+
+    var dominant = 'mixed';
+    if (greenRatio > 0.28) dominant = 'outdoor-green';
+    else if (blueRatio > 0.3) dominant = 'sky-water';
+    else if (whiteRatio > 0.4) dominant = 'document-screen';
+    else if (flatRatio > 0.55) dominant = 'flat-graphic';
+
+    return {
+      ok: true,
+      width: img.width || img.naturalWidth,
+      height: img.height || img.naturalHeight,
+      sharpness: Math.round(topMean),
+      sharpScore: sharpScore,
+      brightness: +brightness.toFixed(3),
+      saturation: +saturation.toFixed(3),
+      flatRatio: +flatRatio.toFixed(3),
+      edgeDensity: +edgeDensity.toFixed(3),
+      greenRatio: +greenRatio.toFixed(3),
+      blueRatio: +blueRatio.toFixed(3),
+      dominant: dominant
+    };
+  }
+
+  /* ======================================================================
+   * 二、判定阈值
+   * ==================================================================== */
+
+  /*
+   * 阈值不是拍脑袋定的，是用 tools/probe-photo.html 跑六张样例图量出来的：
+   *   清晰的设施照   64 / 60 / 40 分
+   *   糊掉的夜景      8 分
+   * 取 25 分作分界线，两边都有余量。
+   *
+   * dark 定得比常规低（0.10 而不是 0.14）：报路灯坏了本来就是晚上拍的，
+   * 用白天的亮度标准会把最该被受理的那类问题挡在门外。
+   */
+  var THRESH = {
+    blur: 25,          // sharpScore 低于此值判为模糊
+    dark: 0.10,        // 亮度低于此值判为过暗
+    overexposed: 0.94, // 高于此值判为过曝
+    flat: 0.88,        // 平坦区超过此值才怀疑是截图
+    flatEdge: 0.012    // 且边缘密度也极低，两个条件同时满足
+  };
+
+  /* ======================================================================
+   * 三、闸门一：视觉质量（纯算法）
+   * ==================================================================== */
+
+  function gateVision(m) {
+    var issues = [];
+    var reason = null;
+    var message = '';
+
+    if (!m.ok) {
+      return { id: 'vision', pass: true, degraded: true, reason: null, message: '图片未能解析，已放行待人工复核' };
+    }
+
+    if (m.sharpScore < THRESH.blur) {
+      reason = 'blur';
+      message = '这张照片有点糊，手抖了一下吧？';
+      issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
+    } else if (m.brightness < THRESH.dark) {
+      reason = 'dark';
+      message = '照片太暗了，看不太清设施本身';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
+    } else if (m.brightness > THRESH.overexposed) {
+      reason = 'overexposed';
+      message = '照片曝得太亮了，细节都没了';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，接近纯白');
+    } else if (m.flatRatio > THRESH.flat && m.edgeDensity < THRESH.flatEdge) {
+      reason = 'flat';
+      message = '这张不太像现场拍的，像是截图或者纯色图';
+      issues.push('平坦区占比 ' + (m.flatRatio * 100).toFixed(0) + '%，边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%');
+    }
+
+    return {
+      id: 'vision',
+      pass: !reason,
+      reason: reason,
+      message: message,
+      metrics: m,
+      issues: issues
+    };
+  }
+
+  /* ======================================================================
+   * 四、闸门二：语义一致性（本地规则版，离线兜底）
+   * ==================================================================== */
+
+  /**
+   * 关键词 → 它究竟属于哪一类。用户选错了，就在这里现形。
+   *
+   * also 是「同样说得通」的类型。一个东西往往跨两类：井盖缺失既是设施损坏，
+   * 更是安全隐患；护栏松动既算设施也算安全。只写单一归属会导致大量误拦 ——
+   * 用户选的完全合理，系统却说他选错了，这比不拦更伤信任。
+   */
+  var SEMANTIC_RULES = [
+    { words: ['路灯', '灯不亮', '照明', '灯管', '灯泡', '灯罩', '频闪', '闪烁'],
+      belongs: 'lighting', also: [] },
+    { words: ['垃圾', '满溢', '垃圾桶', '异味', '臭味', '发臭', '污渍', '小广告', '脏乱'],
+      belongs: 'sanitation', also: [] },
+    { words: ['漏水', '积水', '水管', '下水', '返味', '直饮水', '喷水', '渗水', '排水'],
+      belongs: 'water', also: ['facility'] },
+    { words: ['护栏', '扶手', '座椅', '台阶', '门禁', '玻璃', '断裂', '松动', '损坏', '变形'],
+      belongs: 'facility', also: ['safety'] },
+    { words: ['漏电', '电线', '外露', '倒塌', '坍塌', '围墙', '裂缝', '塌陷', '下沉', '井盖', '危险'],
+      belongs: 'safety', also: ['facility', 'road'] },
+    { words: ['坑洼', '地砖', '路面', '柏油', '减速带', '马路牙', '塌方'],
+      belongs: 'road', also: ['safety'] },
+    { words: ['树枝', '树倒', '倒伏', '草坪', '绿化', '花坛', '落叶'],
+      belongs: 'green', also: [] },
+    { words: ['停车', '乱停', '闸机', '占道', '单车', '电动车', '违停'],
+      belongs: 'traffic', also: [] },
+    { words: ['网络', '断网', '信号', '广播', '监控', '摄像头', '弱电', '网线'],
+      belongs: 'network', also: [] }
+  ];
+
+  var NON_FACILITY_WORDS = ['自拍', '风景', '随手拍', '截图', '网图', '表情包', '打卡', '天空', '夕阳', '好看'];
+
+  function gateSemanticRules(ctx) {
+    var desc = (ctx.desc || '').trim();
+    var picked = ctx.type;
+    var metrics = ctx.metrics || {};
+
+    // 1) 描述里明确写了「这不是设施」
+    for (var i = 0; i < NON_FACILITY_WORDS.length; i++) {
+      if (desc.indexOf(NON_FACILITY_WORDS[i]) >= 0) {
+        return {
+          id: 'semantic', pass: false, reason: 'non-facility',
+          message: '这张更像' + NON_FACILITY_WORDS[i] + '，没找到要报的设施',
+          detail: '描述里提到了「' + NON_FACILITY_WORDS[i] + '」'
+        };
+      }
+    }
+
+    // 2) 「是不是设施」不再靠色彩分布自动判定。
+    //    试过用蓝绿占比识别风景照，但夜里路灯的主导色同样是蓝的，
+    //    误伤比命中多。这类判断交给描述文本，以及 DeepSeek 综合指标去判断。
+
+    // 3) 描述与所选类型冲突
+    if (desc) {
+      for (var j = 0; j < SEMANTIC_RULES.length; j++) {
+        var rule = SEMANTIC_RULES[j];
+        var hit = null;
+        for (var k = 0; k < rule.words.length; k++) {
+          if (desc.indexOf(rule.words[k]) >= 0) { hit = rule.words[k]; break; }
+        }
+        var acceptable = rule.belongs === picked ||
+          (rule.also && rule.also.indexOf(picked) >= 0);
+        if (hit && !acceptable) {
+          // 「其他」不参与冲突判定，用户本来就没选具体类
+          if (picked === 'other') break;
+          return {
+            id: 'semantic', pass: false, reason: 'mismatch',
+            message: '你写的内容更像「' + (global.Domain ? Domain.type(rule.belongs).label : rule.belongs) + '」类问题',
+            detail: '描述里出现了「' + hit + '」，与所选的「' +
+              (global.Domain ? Domain.type(picked).label : picked) + '」不一致',
+            suggestType: rule.belongs
+          };
+        }
+      }
+    }
+
+    // 4) 没描述也没问题 —— 通过
+    return {
+      id: 'semantic', pass: true, reason: null,
+      message: desc ? '描述和所选类型一致' : '没有描述，按图片判断',
+      detail: ''
+    };
+  }
+
+  /* ======================================================================
+   * 五、闸门二：语义一致性（DeepSeek 版）
+   * ==================================================================== */
+
+  var SYSTEM_PROMPT = [
+    '你是「见微」系统的上报质检员。你的唯一任务：判断一条来自校园/乡村居民的公共设施问题上报，是否值得进入工单池。',
+    '',
+    '你拿不到图片本身，但会收到一组图像统计指标。这些指标是真实测量值，请按物理意义理解：',
+    '  sharpScore  0-100，清晰度（拉普拉斯方差归一化）。低于 30 基本是糊的。',
+    '  brightness  0-1，平均亮度。低于 0.14 是黑图或夜间无光，高于 0.93 是过曝。',
+    '  saturation  0-1，平均饱和度。',
+    '  flatRatio   0-1，平坦区块占比。截图、纯色图、表格页通常 > 0.6。',
+    '  edgeDensity 0-1，边缘像素占比。真实场景照片通常 0.06-0.25。',
+    '  dominant    主导色彩类型，取值 outdoor-green / sky-water / document-screen / flat-graphic / mixed。',
+    '',
+    '判定三条标准，任一不满足即判为不通过：',
+    '  1. 图像可用：不是糊图、黑图、过曝、截图、纯色图。',
+    '  2. 内容对题：从图像指标 + 用户描述看，画面里应当存在公共设施，而不是风景、人像、宠物、美食。',
+    '  3. 类型一致：用户描述的问题，与用户选择的分类必须是同一类。例如选了「照明路灯」，描述却写「水管漏水」，则不一致。',
+    '',
+    '同时给出：',
+    '  severity  1-5 的紧急度整数。判断依据是「对人身安全的威胁程度」和「影响范围」，不是用户有多着急。',
+    '            5 = 可能直接伤人的（井盖缺失、电线外露、护栏脱落）；',
+    '            4 = 有安全隐患但不立即伤人；3 = 影响正常使用；2 = 影响体验；1 = 观感问题。',
+    '  summary   20 字以内的问题摘要，动词开头，例如「路灯灯罩破损，夜间无照明」。',
+    '  advice    30 字以内给管理端的处置建议，要具体到动作，例如「建议夜间带电检修，重点查线路接头」。',
+    '',
+    '语气要求：拒绝时不要像机器在驳回。用「建议换一张」而不是「不符合要求」。',
+    '',
+    '严格只输出 JSON，不要 markdown 代码块，不要任何解释文字。字段：',
+    '{',
+    '  "pass": true|false,',
+    '  "reason": "blur"|"dark"|"overexposed"|"flat"|"non-facility"|"mismatch"|null,',
+    '  "message": "给用户看的一句话，20 字内，温和",',
+    '  "detail": "给管理员看的判定依据，40 字内",',
+    '  "severity": 1-5,',
+    '  "summary": "20 字内摘要",',
+    '  "advice": "30 字内处置建议"',
+    '}'
+  ].join('\n');
+
+  function buildUserPrompt(ctx) {
+    var m = ctx.metrics || {};
+    var typeLabel = global.Domain ? Domain.type(ctx.type).label : ctx.type;
+    var lines = [
+      '【上报内容】',
+      '问题类型：' + typeLabel,
+      '用户描述：' + (ctx.desc ? '「' + ctx.desc + '」' : '（未填写）'),
+      '上报地点：' + (ctx.address || '未知'),
+      '',
+      '【图像指标（真实测量）】',
+      '清晰度 sharpScore：' + (m.sharpScore != null ? m.sharpScore : '未知'),
+      '亮度 brightness：' + (m.brightness != null ? m.brightness : '未知'),
+      '饱和度 saturation：' + (m.saturation != null ? m.saturation : '未知'),
+      '平坦区占比 flatRatio：' + (m.flatRatio != null ? m.flatRatio : '未知'),
+      '边缘密度 edgeDensity：' + (m.edgeDensity != null ? m.edgeDensity : '未知'),
+      '主导色彩 dominant：' + (m.dominant || '未知')
+    ];
+
+    if (ctx.history && ctx.history.length) {
+      lines.push('');
+      lines.push('【该地点附近 24 小时内的历史上报】');
+      ctx.history.slice(0, 4).forEach(function (h) {
+        lines.push('- ' + h.typeLabel + '，' + h.ago + '，' + (h.summary || '无摘要'));
+      });
+    }
+    return lines.join('\n');
+  }
+
+  function judgeByDeepSeek(ctx, cfg) {
+    var body = {
+      model: cfg.model || 'deepseek-chat',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserPrompt(ctx) }
+      ],
+      temperature: 0.2,
+      max_tokens: 500,
+      response_format: { type: 'json_object' }
+    };
+
+    var url = (cfg.endpoint || '').replace(/\/+$/, '') + '/chat/completions';
+    var headers = { 'Content-Type': 'application/json' };
+    if (cfg.apiKey) headers['Authorization'] = 'Bearer ' + cfg.apiKey;
+
+    var t0 = Date.now();
+    return fetch(url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(body)
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        var raw = j.choices && j.choices[0] && j.choices[0].message
+          ? j.choices[0].message.content : '';
+        var parsed = safeParseJSON(raw);
+        if (!parsed) throw new Error('模型返回的不是合法 JSON');
+        return {
+          id: 'semantic',
+          pass: parsed.pass !== false,
+          reason: parsed.reason || null,
+          message: parsed.message || '',
+          detail: parsed.detail || '',
+          severity: clampSeverity(parsed.severity),
+          summary: parsed.summary || '',
+          advice: parsed.advice || '',
+          source: 'deepseek',
+          latency: Date.now() - t0,
+          raw: raw
+        };
+      });
+  }
+
+  /** 模型偶尔会包一层 ```json，三级清洗 */
+  function safeParseJSON(text) {
+    if (!text) return null;
+    var s = String(text).trim();
+    // 1) 直接解析
+    try { return JSON.parse(s); } catch (e) { /* 继续 */ }
+    // 2) 抠出第一个 { ... }
+    var i = s.indexOf('{');
+    var j = s.lastIndexOf('}');
+    if (i >= 0 && j > i) {
+      try { return JSON.parse(s.slice(i, j + 1)); } catch (e2) { /* 继续 */ }
+    }
+    // 3) 去掉 markdown 围栏再试
+    s = s.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    try { return JSON.parse(s); } catch (e3) { return null; }
+  }
+
+  function clampSeverity(v) {
+    var n = Math.round(Number(v));
+    if (!isFinite(n)) return 2;
+    return Math.max(1, Math.min(5, n));
+  }
+
+  /* ======================================================================
+   * 六、智能体主体
+   * ==================================================================== */
+
+  /**
+   * @param {Object} opts
+   *   mode      'auto' | 'rules' | 'deepseek'
+   *   endpoint  DeepSeek 兼容端点，默认走本地代理 http://localhost:8787/v1
+   *   apiKey    直连时才需要；走代理时密钥留在服务端，前端不碰
+   *   model     默认 deepseek-chat
+   *   timeout   毫秒，默认 12000
+   */
+  function createAgent(opts) {
+    opts = opts || {};
+    var cfg = {
+      mode: opts.mode || 'auto',
+      endpoint: opts.endpoint || 'http://localhost:8787/v1',
+      apiKey: opts.apiKey || '',
+      model: opts.model || 'deepseek-chat',
+      timeout: opts.timeout || 12000
+    };
+
+    var status = { mode: 'rules', online: false, lastError: '', checkedAt: 0 };
+
+    /** 探测代理是否活着。活着就用真模型，否则回落到本地规则。 */
+    function probe() {
+      if (cfg.mode === 'rules') {
+        status.mode = 'rules';
+        status.online = false;
+        return Promise.resolve(status);
+      }
+      var base = cfg.endpoint.replace(/\/v1\/?$/, '');
+      var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = ctl ? setTimeout(function () { ctl.abort(); }, 1500) : null;
+
+      return fetch(base + '/health', { signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('bad')); })
+        .then(function (j) {
+          if (timer) clearTimeout(timer);
+          status.online = !!(j && j.ok);
+          status.mode = status.online ? 'deepseek' : 'rules';
+          status.model = (j && j.model) || cfg.model;
+          status.hasKey = !!(j && j.hasKey);
+          status.lastError = '';
+          status.checkedAt = Date.now();
+          return status;
+        })
+        .catch(function (e) {
+          if (timer) clearTimeout(timer);
+          status.online = false;
+          status.mode = 'rules';
+          status.lastError = e && e.name === 'AbortError' ? '代理无响应' : '未检测到本地代理';
+          status.checkedAt = Date.now();
+          return status;
+        });
+    }
+
+    /**
+     * 主入口：跑完整的两道闸门
+     * @param {Object} ctx { image, type, desc, address, lng, lat, history }
+     * @returns {Promise<Object>} verdict
+     */
+    function judge(ctx) {
+      var t0 = Date.now();
+      return analyzeImage(ctx.image).then(function (metrics) {
+        var vision = gateVision(metrics);
+        var local = { metrics: metrics, desc: ctx.desc, type: ctx.type };
+
+        // 视觉闸门已经拦下，没必要再花钱调模型
+        if (!vision.pass) {
+          return finish({
+            pass: false,
+            gates: [vision],
+            reason: vision.reason,
+            message: vision.message,
+            severity: 0,
+            source: 'rules',
+            latency: Date.now() - t0
+          });
+        }
+
+        var semanticPromise;
+        if (status.mode === 'deepseek') {
+          var enriched = Object.assign({ metrics: metrics }, ctx);
+          semanticPromise = judgeByDeepSeek(enriched, cfg).catch(function (e) {
+            status.lastError = String(e && e.message || e);
+            // 模型挂了也要给用户一个出口 —— 降级放行，标人工复核
+            var fb = gateSemanticRules(local);
+            fb.degraded = true;
+            fb.detail = (fb.detail || '') + '（模型不可用，已降级为本地规则）';
+            return fb;
+          });
+        } else {
+          semanticPromise = Promise.resolve(gateSemanticRules(local));
+        }
+
+        return semanticPromise.then(function (sem) {
+          var gates = [vision, sem];
+          var severity = sem.severity || estimateSeverity(ctx, metrics);
+
+          /* 一条重要的边界：模型看不到图，只能看到统计量。
+             所以它没有资格否决"画质"——那是本地指标该管的事，
+             而且是确定性的。模型如果拿一堆数字推断"这图太平淡"，
+             就会把夜里的路灯实拍全部毙掉，而路灯问题恰好都发生在夜里。
+             这里把视觉类理由降级成"建议"，只保留语义类（类型错配）的否决权。 */
+          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
+          var soft = false;
+          if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
+            soft = true;
+          }
+
+          /* 同理，语义否决也要有本地规则背书。
+             模型的判断会飘：同一段"路面积水"，它可能算给排水也可能算道路破损。
+             而 domain.js 里的 also 兼容表是人工校过的领域知识。
+             所以规则是：模型 + 本地规则一致才拦，只有模型反对就降级成温馨提示。 */
+          if (!soft && sem.pass === false && sem.reason === 'mismatch' && sem.source === 'deepseek') {
+            var localSem = gateSemanticRules(local);
+            if (localSem.pass) soft = true;
+          }
+
+          return finish({
+            pass: soft ? true : sem.pass,
+            gates: gates,
+            reason: soft ? null : sem.reason,
+            message: sem.message,
+            detail: soft ? '模型仅凭统计量认为画质偏弱，本地指标判定通过，已按通过处理' : sem.detail,
+            softHint: soft ? sem.message : null,
+            suggestType: sem.suggestType,
+            summary: sem.summary || autoSummary(ctx),
+            advice: sem.advice || autoAdvice(ctx),
+            severity: severity,
+            source: sem.source || 'rules',
+            degraded: !!sem.degraded,
+            latency: Date.now() - t0
+          });
+        });
+      });
+    }
+
+    function finish(v) {
+      v.at = Date.now();
+      // 强制兜底：任何情况下 pass 必须是布尔值
+      v.pass = v.pass !== false;
+      return v;
+    }
+
+    /** 模型没给 severity 时，用类型基准 + 指标微调 */
+    function estimateSeverity(ctx, m) {
+      var base = global.Domain ? Domain.type(ctx.type).base : 2;
+      if (ctx.type === 'safety') base = 4;
+      if (m && m.edgeDensity > 0.18) base = Math.min(5, base + 1);
+      return base;
+    }
+
+    function autoSummary(ctx) {
+      var label = global.Domain ? Domain.type(ctx.type).label : '设施';
+      var d = (ctx.desc || '').trim();
+      if (!d) return label + '问题待核查';
+      return d.length > 20 ? d.slice(0, 20) + '…' : d;
+    }
+
+    function autoAdvice(ctx) {
+      var deptName = global.Domain ? Domain.deptFor(ctx.type).short : '相关班组';
+      return '建议派' + deptName + '现场核实后处置';
+    }
+
+    return {
+      judge: judge,
+      probe: probe,
+      status: function () { return Object.assign({}, status); },
+      configure: function (patch) {
+        Object.assign(cfg, patch || {});
+        return probe();
+      },
+      config: function () { return Object.assign({}, cfg); },
+      SYSTEM_PROMPT: SYSTEM_PROMPT
+    };
+  }
+
+  /* ======================================================================
+   * 七、导出
+   * ==================================================================== */
+
+  var SentinelAgent = {
+    create: createAgent,
+    analyzeImage: analyzeImage,
+    THRESH: THRESH,
+    SYSTEM_PROMPT: SYSTEM_PROMPT,
+    /** 暴露给测试用 */
+    _gateSemanticRules: gateSemanticRules,
+    _safeParseJSON: safeParseJSON
+  };
+
+  if (typeof module === 'object' && module.exports) module.exports = SentinelAgent;
+  global.SentinelAgent = SentinelAgent;
+
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script data-from="../shared/data.js">
+/* ============================================================
+   见微 · 用户端数据层
+   ------------------------------------------------------------
+   三块内容：
+     1. 静态数据：郑州大学主校区的真实经纬度点位、我的上报、徽章
+     2. 现场照片：用 SVG 画，不依赖任何图片文件
+        —— 演示需要稳定复现「糊图」「风景照」这类失败用例，
+           现成照片没法控，自己画才能保证每次讲都一样
+     3. 判定入口：转交给 SentinelAgent（真实图像算法 + DeepSeek）
+
+   坐标说明：全部为 WGS-84，与 navigator.geolocation 同一坐标系。
+   地图组件内部会转成 GCJ-02 再打在高德底图上。
+   ============================================================ */
+(function (global) {
+  'use strict';
+
+  var D = global.Domain;
+  var TM = global.TileMap;
+
+  /* ================= 1. 常量 ================= */
+
+  // 类型直接用领域词汇表，用户端和管理端不会再各写一份
+  var TYPES = D.TYPES.map(function (t) {
+    return { key: t.id, label: t.label, icon: t.icon, hint: t.hint, color: t.color };
+  });
+  var TYPE_LABEL = {};
+  TYPES.forEach(function (t) { TYPE_LABEL[t.key] = t.label; });
+
+  var STATUS = {
+    pending:    { label: '待处理',   color: '#D9483F' },
+    processing: { label: '处理中',   color: '#C97E15' },
+    review:     { label: '人工复核', color: '#6B7C8A' },
+    resolved:   { label: '已解决',   color: '#3E8A5F' },
+    rejected:   { label: '被驳回',   color: '#93A2A0' }
+  };
+
+  /* ================= 2. 校园地块（给地图画注记用） ================= */
+
+  /**
+   * 校区主要地标。用户端不画这些，只是给「附近有什么」的文案用；
+   * 管理端会拿来做区域聚合命名。
+   */
+  var LANDMARKS = [
+    { id: 'lib',    name: '图书馆',     lng: 113.5315, lat: 34.8181 },
+    { id: 'admin',  name: '行政楼',     lng: 113.5296, lat: 34.8190 },
+    { id: 'teach',  name: '教学区',     lng: 113.5355, lat: 34.8166 },
+    { id: 'eng',    name: '工科园',     lng: 113.5332, lat: 34.8196 },
+    { id: 'med',    name: '医学院',     lng: 113.5368, lat: 34.8210 },
+    { id: 'liuyuan',name: '柳园宿舍',   lng: 113.5276, lat: 34.8129 },
+    { id: 'heyuan', name: '荷园宿舍',   lng: 113.5270, lat: 34.8202 },
+    { id: 'canteen',name: '菊园食堂',   lng: 113.5312, lat: 34.8133 },
+    { id: 'sport',  name: '体育场',     lng: 113.5352, lat: 34.8123 },
+    { id: 'lake',   name: '人工湖',     lng: 113.5341, lat: 34.8197 },
+    { id: 'south',  name: '南门',       lng: 113.5311, lat: 34.8100 },
+    { id: 'north',  name: '北门',       lng: 113.5321, lat: 34.8236 }
+  ];
+
+  /* ================= 3. 地图点位 ================= */
+
+  /**
+   * 说明：这些坐标是按校区布局换算的真实经纬度（演示用近似值，
+   * 误差在 20 米内）。用户端展示时会再做一次「脱敏」——
+   * 把坐标随机偏移 ±15 米显示，避免精确暴露具体楼栋。
+   */
+  var POINTS = [
+    // --- 待处理 ---
+    { id: 'p1', type: 'sanitation', lng: 113.5279, lat: 34.8132, status: 'pending', addr: '柳园 6 号楼东侧垃圾点', ago: 0.2, by: '陈', merged: 0 },
+    { id: 'p2', type: 'lighting',   lng: 113.5314, lat: 34.8175, status: 'pending', addr: '图书馆南广场路灯', ago: 0.6, by: '李', merged: 3, reporters: 4 },
+    { id: 'p3', type: 'safety',     lng: 113.5336, lat: 34.8152, status: 'pending', addr: '教学区主路井盖缺失', ago: 1.1, by: '王', merged: 0, reporters: 1 },
+    { id: 'p4', type: 'lighting',   lng: 113.5290, lat: 34.8155, status: 'pending', addr: '柳园至食堂小路',     ago: 1.8, by: '张', merged: 2 },
+    { id: 'p5', type: 'sanitation', lng: 113.5316, lat: 34.8136, status: 'pending', addr: '菊园食堂东南角',     ago: 2.4, by: '刘', merged: 0 },
+    { id: 'p6', type: 'facility',   lng: 113.5310, lat: 34.8186, status: 'pending', addr: '图书馆二层无障碍坡道', ago: 3.2, by: '赵', merged: 0 },
+    { id: 'p7', type: 'safety',     lng: 113.5375, lat: 34.8192, status: 'pending', addr: '医学院北侧围墙',    ago: 4.5, by: '孙', merged: 0 },
+    { id: 'p8', type: 'road',       lng: 113.5313, lat: 34.8113, status: 'pending', addr: '南门内主干道',      ago: 5.1, by: '周', merged: 1 },
+    { id: 'p9', type: 'traffic',    lng: 113.5344, lat: 34.8113, status: 'pending', addr: '体育场东门非机动车占道', ago: 6.2, by: '吴', merged: 0 },
+    { id: 'p10', type: 'green',     lng: 113.5288, lat: 34.8198, status: 'pending', addr: '荷园 3 号楼前树枝断裂', ago: 7.4, by: '郑', merged: 0 },
+
+    // --- 已解决 ---
+    { id: 'r1', type: 'sanitation', lng: 113.5283, lat: 34.8140, status: 'resolved', addr: '柳园 4 号楼下',     ago: 2.6, by: '李', merged: 0 },
+    { id: 'r2', type: 'lighting',   lng: 113.5322, lat: 34.8168, status: 'resolved', addr: '图书馆东侧公告栏旁', ago: 3.9, by: '吴', merged: 2 },
+    { id: 'r3', type: 'facility',   lng: 113.5346, lat: 34.8196, status: 'resolved', addr: '人工湖西岸护栏',    ago: 5.4, by: '郑', merged: 0 },
+    { id: 'r4', type: 'safety',     lng: 113.5266, lat: 34.8168, status: 'resolved', addr: '西门内坡道',        ago: 6.8, by: '冯', merged: 1 },
+    { id: 'r5', type: 'sanitation', lng: 113.5321, lat: 34.8122, status: 'resolved', addr: '菊园南侧垃圾房',    ago: 8.2, by: '何', merged: 0 },
+    { id: 'r6', type: 'water',      lng: 113.5356, lat: 34.8172, status: 'resolved', addr: '教学区 B 座饮水机',  ago: 9.5, by: '钱', merged: 0 }
+  ];
+
+  /* ================= 4. 我的上报 ================= */
+
+  var MY_REPORTS = [
+    { id: 'q1', type: 'sanitation', status: 'pending',    addr: '柳园 6 号楼东侧垃圾点',     ago: 0.2, merged: 0, photo: 'trash' },
+    { id: 'q2', type: 'lighting',   status: 'processing', addr: '图书馆南广场路灯',          ago: 0.6, merged: 3, photo: 'lamp' },
+    { id: 'q3', type: 'safety',     status: 'pending',    addr: '教学区主路井盖缺失',        ago: 1.1, merged: 0, photo: 'pothole' },
+    { id: 'q4', type: 'sanitation', status: 'resolved',   addr: '柳园 4 号楼下',             ago: 2.6, merged: 0, photo: 'trash' },
+    { id: 'q5', type: 'lighting',   status: 'resolved',   addr: '图书馆东侧公告栏旁',        ago: 3.9, merged: 2, photo: 'lamp' },
+    { id: 'q6', type: 'facility',   status: 'resolved',   addr: '图书馆二层无障碍坡道',      ago: 5.2, merged: 0, photo: 'pothole' },
+    { id: 'q7', type: 'other',      status: 'rejected',   addr: '未识别坐标',                ago: 6.4, merged: 0, photo: 'scenery' },
+    { id: 'q8', type: 'safety',     status: 'resolved',   addr: '西门内坡道',                ago: 7.1, merged: 1, photo: 'pothole' },
+    { id: 'q9', type: 'road',       status: 'processing', addr: '南门内主干道',              ago: 5.1, merged: 1, photo: 'pothole' }
+  ];
+
+  /* ================= 5. 徽章 ================= */
+
+  var BADGES = [
+    { code: 'first_report',  name: '初次出勤', icon: 'sprout', desc: '完成第一次有效上报',     tip: '上报一次就能拿到' },
+    { code: 'eagle_eye',     name: '火眼金睛', icon: 'eye',    desc: '识别出被忽视的安全隐患', tip: '提交安全隐患类问题，且紧急度达到 4 星' },
+    { code: 'gold_sentinel', name: '金牌哨兵', icon: 'shield', desc: '连续 7 天有效上报',      tip: '一天至少一次，连续七天' },
+    { code: 'night_watch',   name: '夜巡者',   icon: 'moon',   desc: '在 22:00–06:00 之间上报', tip: '晚上回宿舍路上顺手拍一张' },
+    { code: 'crowd',         name: '众人拾柴', icon: 'users',  desc: '你的上报与邻居的合并为同一工单', tip: '同一位置 15 米内、24 小时内有人先报过' },
+    { code: 'clean_hand',    name: '清道夫',   icon: 'broom',  desc: '累计 10 条卫生类有效上报', tip: '卫生类问题攒够 10 条' }
+  ];
+
+  /* ================= 6. 用户 ================= */
+
+  var USER = {
+    name: '李知远',
+    initial: '李',
+    credit: 86,
+    streak: 3,
+    validCnt: 12,
+    resolvedCnt: 8,
+    invalidCnt: 1,
+    badges: ['first_report', 'night_watch'],
+    openid: 'u_demo_li'
+  };
+
+  /* ================= 7. 现场照片（纯 SVG） =================
+     尺寸统一 240×180（4:3），够算法算清晰度，也不至于太重。
+     这些图会被渲染到 canvas 上再做真实的拉普拉斯方差计算 ——
+     所以「拍糊了」那张是真的糊，不是打了个标签。 */
+
+  var uid = 0;
+
+  function photoSVG(kind) {
+    var id = 'p' + (++uid);
+
+    function shell(inner, defs) {
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" ' +
+             'width="240" height="180" preserveAspectRatio="xMidYMid slice">' +
+             '<defs>' + (defs || '') + '</defs>' + inner + '</svg>';
+    }
+
+    switch (kind) {
+      /* --- 垃圾桶满溢：清晰、含设施、语义一致 --- */
+      case 'trash':
+        return shell(
+          '<rect width="240" height="180" fill="#94A096"/>' +
+          '<rect width="240" height="180" fill="url(#' + id + 'g)"/>' +
+          '<path d="M0 146h240" stroke="#77837B" stroke-width="2" opacity=".5"/>' +
+          '<path d="M0 166h240" stroke="#77837B" stroke-width="1.6" opacity=".28"/>' +
+          '<path d="M76 82h88l-10 82H86z" fill="#3C6B4F"/>' +
+          '<path d="M76 82h88l-3 15H79z" fill="#2E5740"/>' +
+          '<rect x="66" y="68" width="108" height="15" rx="5" fill="#4A7D5E"/>' +
+          '<circle cx="100" cy="64" r="15" fill="#E6E2D6"/>' +
+          '<circle cx="128" cy="56" r="18" fill="#D9D4C4"/>' +
+          '<circle cx="154" cy="66" r="13" fill="#EDE9DF"/>' +
+          '<path d="M112 60l13-17 8 21z" fill="#C7C0AE"/>' +
+          '<circle cx="194" cy="158" r="8" fill="#DCD8CA"/>' +
+          '<rect x="36" y="152" width="20" height="12" rx="4" fill="#D0CCBE" transform="rotate(-12 46 158)"/>' +
+          '<path d="M88 106h64M88 128h64" stroke="#2E5740" stroke-width="2.4" opacity=".55"/>' +
+          '<path d="M150 74c8-10 22-12 32-4" stroke="#B9C3BA" stroke-width="2.4" fill="none" opacity=".7"/>',
+          '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0" stop-color="#C4CDC6" stop-opacity=".9"/>' +
+            '<stop offset="1" stop-color="#7F8C83" stop-opacity=".9"/></linearGradient>'
+        );
+
+      /* --- 路灯不亮：夜间，主体暗 --- */
+      case 'lamp':
+        return shell(
+          '<rect width="240" height="180" fill="#16202C"/>' +
+          '<rect width="240" height="180" fill="url(#' + id + 's)"/>' +
+          '<path d="M0 128h56V100h40v28h36V94h48v34h60v52H0z" fill="#1B2734"/>' +
+          '<rect y="158" width="240" height="22" fill="#232D36"/>' +
+          '<rect x="110" y="50" width="8" height="110" rx="4" fill="#7A8894"/>' +
+          '<path d="M114 50c0-12 16-16 28-16" stroke="#7A8894" stroke-width="7.4" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="146" cy="30" rx="17" ry="8" fill="#4E4839"/>' +
+          '<ellipse cx="146" cy="33" rx="11" ry="4.6" fill="#6E6448"/>' +
+          '<ellipse cx="146" cy="40" rx="12" ry="3.6" fill="#8A8264" opacity=".2"/>' +
+          '<circle cx="40" cy="30" r="2.4" fill="#8FA5B8" opacity=".5"/>' +
+          '<circle cx="196" cy="24" r="2" fill="#8FA5B8" opacity=".4"/>' +
+          '<circle cx="72" cy="18" r="1.8" fill="#8FA5B8" opacity=".35"/>' +
+          '<rect x="160" y="138" width="30" height="20" rx="3" fill="#5C6B78" opacity=".8"/>',
+          '<linearGradient id="' + id + 's" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0" stop-color="#101823"/>' +
+            '<stop offset=".7" stop-color="#26333F"/>' +
+            '<stop offset="1" stop-color="#33414C"/></linearGradient>'
+        );
+
+      /* --- 井盖缺失：路面黑洞 + 警示锥 --- */
+      case 'pothole':
+        return shell(
+          '<rect width="240" height="180" fill="#4E5457"/>' +
+          '<rect width="240" height="180" fill="url(#' + id + 'a)"/>' +
+          '<g fill="#6E7477" opacity=".5">' +
+            '<circle cx="28" cy="36" r="2"/><circle cx="72" cy="20" r="2.6"/>' +
+            '<circle cx="196" cy="44" r="2"/><circle cx="40" cy="150" r="2.6"/>' +
+            '<circle cx="212" cy="156" r="2"/><circle cx="144" cy="170" r="2.2"/>' +
+            '<circle cx="16" cy="90" r="2.2"/><circle cx="224" cy="96" r="2.4"/>' +
+            '<circle cx="180" cy="120" r="1.8"/><circle cx="62" cy="120" r="1.8"/>' +
+          '</g>' +
+          '<path d="M0 40h240M0 132h240" stroke="#3E4345" stroke-width="2" opacity=".5"/>' +
+          '<ellipse cx="120" cy="96" rx="62" ry="46" fill="#171B1D"/>' +
+          '<ellipse cx="120" cy="93" rx="54" ry="39" fill="#0A0D0F"/>' +
+          '<path d="M64 96c8-24 44-40 72-32" stroke="#808789" stroke-width="4" fill="none" opacity=".42"/>' +
+          '<path d="M188 156l14-40 14 40z" fill="#E08A2B"/>' +
+          '<rect x="182" y="156" width="40" height="9" rx="4" fill="#C87A1C"/>' +
+          '<rect x="190" y="136" width="24" height="7" rx="3" fill="#F2F4F3" opacity=".8"/>' +
+          '<path d="M120 60v14" stroke="#9AA1A3" stroke-width="3" stroke-linecap="round" opacity=".6"/>',
+          '<linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1">' +
+            '<stop offset="0" stop-color="#5F6568"/>' +
+            '<stop offset="1" stop-color="#3E4345"/></linearGradient>'
+        );
+
+      /* --- 风景照：会被判定为非设施 --- */
+      case 'scenery':
+        return shell(
+          '<rect width="240" height="180" fill="#D9E8EE"/>' +
+          '<rect width="240" height="180" fill="url(#' + id + 'k)"/>' +
+          '<circle cx="178" cy="44" r="22" fill="#F4D391" opacity=".9"/>' +
+          '<path d="M0 118l54-54 34 34 30-22 62 50z" fill="#96B2A9"/>' +
+          '<path d="M100 118l46-46 42 46z" fill="#7E9C93"/>' +
+          '<path d="M0 118h240v62H0z" fill="#86A67E"/>' +
+          '<path d="M0 136h240v44H0z" fill="#788F71"/>' +
+          '<rect x="58" y="124" width="8" height="28" fill="#5E5342"/>' +
+          '<circle cx="62" cy="112" r="22" fill="#61905D"/>' +
+          '<circle cx="46" cy="124" r="16" fill="#57854F"/>' +
+          '<circle cx="80" cy="126" r="14" fill="#6A9A62"/>' +
+          '<path d="M184 144l28-12" stroke="#E7EDE5" stroke-width="4" opacity=".45" stroke-linecap="round"/>' +
+          '<path d="M20 160c40-8 80-6 120 4" stroke="#93AE88" stroke-width="5" fill="none" opacity=".5"/>',
+          '<linearGradient id="' + id + 'k" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0" stop-color="#A3C6D9"/>' +
+            '<stop offset=".6" stop-color="#D6E6EB"/>' +
+            '<stop offset="1" stop-color="#EAF1EA"/></linearGradient>'
+        );
+
+      /* --- 拍糊了：同一栈灯加真实高斯模糊 ---
+             注意这里用的 SVG filter 会在渲染到 canvas 时真被执行，
+             所以交给算法的是真的模糊像素，不是"假装糊"的元数据 */
+      case 'blur':
+        return shell(
+          '<g filter="url(#' + id + 'f)">' +
+            '<rect width="240" height="180" fill="#1A2430"/>' +
+            '<rect width="240" height="180" fill="url(#' + id + 's)"/>' +
+            '<path d="M0 132h240v48H0z" fill="#28323B"/>' +
+            '<rect x="110" y="54" width="10" height="108" fill="#7C8A96"/>' +
+            '<path d="M114 54c0-14 16-18 30-18" stroke="#7C8A96" stroke-width="8.8" fill="none" stroke-linecap="round"/>' +
+            '<ellipse cx="148" cy="32" rx="20" ry="10" fill="#5A5340"/>' +
+          '</g>',
+          '<filter id="' + id + 'f" x="-30%" y="-30%" width="160%" height="160%">' +
+            '<feGaussianBlur stdDeviation="6.5"/></filter>' +
+          '<linearGradient id="' + id + 's" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0" stop-color="#131C26"/>' +
+            '<stop offset="1" stop-color="#303C47"/></linearGradient>'
+        );
+
+      /* --- 积水：给 05 场景用 --- */
+      case 'puddle':
+        return shell(
+          '<rect width="240" height="180" fill="#5A6165"/>' +
+          '<rect width="240" height="180" fill="url(#' + id + 'a)"/>' +
+          '<path d="M0 60h240M0 140h240" stroke="#464C4F" stroke-width="3" opacity=".6"/>' +
+          '<path d="M20 88c30-14 70-16 104-6 26 8 60 10 96 2v46c-40 10-86 8-120-2-30-9-56-6-80 4z" fill="#2E4A5C" opacity=".92"/>' +
+          '<path d="M40 96c26-8 56-9 84-3" stroke="#6E93A8" stroke-width="3" fill="none" opacity=".55"/>' +
+          '<path d="M150 104c14 4 30 5 46 2" stroke="#6E93A8" stroke-width="3" fill="none" opacity=".45"/>' +
+          '<rect x="196" y="52" width="6" height="52" rx="3" fill="#8E9AA2"/>' +
+          '<path d="M199 52c0-8 10-10 18-10" stroke="#8E9AA2" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+          '<circle cx="44" cy="40" r="3" fill="#9AA1A3" opacity=".5"/>',
+          '<linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1">' +
+            '<stop offset="0" stop-color="#6A7176"/>' +
+            '<stop offset="1" stop-color="#4B5155"/></linearGradient>'
+        );
+
+      default:
+        return shell('<rect width="240" height="180" fill="#DDE5E3"/>');
+    }
+  }
+
+  /** SVG 字符串 → data URI（给 <img> 和 canvas 用） */
+  function photoDataURI(kind) {
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(photoSVG(kind));
+  }
+
+  /* ================= 8. 演示场景 ================= */
+
+  var SCENES = [
+    {
+      key: 'normal', tone: 'ok', n: '01', label: '垃圾桶满溢',
+      sub: '完整通过 · 看合并与徽章',
+      photo: 'trash', type: 'sanitation',
+      desc: '垃圾已经堆到路上了，味道挺大',
+      addr: '柳园 6 号楼东侧垃圾点',
+      lng: 113.5279, lat: 34.8132
+    },
+    {
+      key: 'blur', tone: 'bad', n: '02', label: '拍糊了',
+      sub: '视觉闸门 · 清晰度不足',
+      photo: 'blur', type: 'lighting',
+      desc: '这盏灯坏了',
+      addr: '图书馆南广场路灯',
+      lng: 113.5314, lat: 34.8175
+    },
+    {
+      key: 'scenery', tone: 'bad', n: '03', label: '风景照',
+      sub: '语义闸门 · 没有设施',
+      photo: 'scenery', type: 'other',
+      desc: '随手拍的',
+      addr: '人工湖边',
+      lng: 113.5341, lat: 34.8197
+    },
+    {
+      key: 'mismatch', tone: 'bad', n: '04', label: '类型错配',
+      sub: '语义闸门 · 描述不符',
+      photo: 'pothole', type: 'lighting',
+      desc: '这里水管漏水，地上都是积水',
+      addr: '教学区主路',
+      lng: 113.5336, lat: 34.8152
+    },
+    {
+      key: 'crowd', tone: 'ok', n: '05', label: '多人续报',
+      sub: '合并工单 · 优先级抬升',
+      photo: 'pothole', type: 'safety',
+      desc: '井盖没了，晚上有人差点掉进去',
+      addr: '教学区主路井盖缺失',
+      lng: 113.5337, lat: 34.8153   // 距离 p3 约 12 米，会触发合并
+    },
+    {
+      key: 'water', tone: 'ok', n: '06', label: '积水返水',
+      sub: '新类型 · 派给水电班组',
+      photo: 'puddle', type: 'water',
+      desc: '下水道堵了，一直往上返水，积了一大片',
+      addr: '菊园食堂东侧排水口',
+      lng: 113.5317, lat: 34.8135
+    }
+  ];
+
+  /* ================= 9. 交互辅助 ================= */
+
+  /** 用真实球面距离找附近未处理点位 */
+  function findNearby(lng, lat, type, list, myOpenid) {
+    list = list || POINTS;
+    return list.filter(function (p) {
+      if (p.status !== 'pending' && p.status !== 'processing') return false;
+      if (type && p.type !== type) return false;
+      return TM.distance(lng, lat, p.lng, p.lat) <= D.MERGE.radius;
+    });
+  }
+
+  /** 用户端展示用：坐标脱敏偏移 ±15 米，避免暴露到具体楼栋 */
+  function fuzz(lng, lat, seed) {
+    var s = seed || 1;
+    var r = function (n) {
+      s = (s * 9301 + 49297) % 233280;
+      return s / 233280 - 0.5;
+    };
+    return [lng + r() * 0.00028, lat + r() * 0.00022];
+  }
+
+  global.DATA = {
+    TYPES: TYPES,
+    TYPE_LABEL: TYPE_LABEL,
+    STATUS: STATUS,
+    LANDMARKS: LANDMARKS,
+    POINTS: POINTS,
+    MY_REPORTS: MY_REPORTS,
+    BADGES: BADGES,
+    USER: USER,
+    SCENES: SCENES,
+    photoSVG: photoSVG,
+    photoDataURI: photoDataURI,
+    findNearby: findNearby,
+    fuzz: fuzz
+  };
+})(window);
+
+</script>
+<script data-from="../h5-web/assets/js/ui.js">
+/* ============================================================
+   见微 · 通用 UI 层
+   ------------------------------------------------------------
+   1. 图标：全套 24×24 线条图标，统一 stroke-width 1.7。
+      不用 emoji —— emoji 在不同系统上字形差异极大，且无法跟主题色。
+   2. toast / sheet：自绘，替代 alert。
+   3. 小工具：日期格式化、HTML 转义。
+   ============================================================ */
+(function (global) {
+  'use strict';
+
+  /* ---------------- 图标 ---------------- */
+  // 统一描边参数，改一处全套生效
+  const P = 'stroke="currentColor" stroke-width="1.7" fill="none" ' +
+            'stroke-linecap="round" stroke-linejoin="round"';
+
+  const ICONS = {
+    map: '<path d="M9.2 3.8 3.6 6.2v14l5.6-2.4 5.6 2.4 5.6-2.4v-14l-5.6 2.4-5.6-2.4Z" ' + P + '/><path d="M9.2 3.8v14M14.8 6.2v14" ' + P + '/>',
+    list: '<path d="M8.4 6.4h11.2M8.4 12h11.2M8.4 17.6h11.2" ' + P + '/><circle cx="4.6" cy="6.4" r="1.1" fill="currentColor"/><circle cx="4.6" cy="12" r="1.1" fill="currentColor"/><circle cx="4.6" cy="17.6" r="1.1" fill="currentColor"/>',
+    user: '<circle cx="12" cy="8.2" r="3.7" ' + P + '/><path d="M4.8 20c0-3.7 3.2-6.2 7.2-6.2s7.2 2.5 7.2 6.2" ' + P + '/>',
+    back: '<path d="M14.6 5.4 8 12l6.6 6.6" ' + P + '/>',
+    close: '<path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" ' + P + '/>',
+    plus: '<path d="M12 5.4v13.2M5.4 12h13.2" ' + P + '/>',
+    check: '<path d="M5 12.6l4.4 4.4L19 6.8" ' + P + '/>',
+    alert: '<path d="M12 4.6 20.4 19H3.6L12 4.6Z" ' + P + '/><path d="M12 9.8v3.8M12 16.6h.01" ' + P + '/>',
+    camera: '<path d="M3.6 8.8A1.8 1.8 0 0 1 5.4 7h2.2l1.4-2h6l1.4 2h2.2a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V8.8Z" ' + P + '/><circle cx="12" cy="13" r="3.4" ' + P + '/>',
+    locate: '<circle cx="12" cy="12" r="6.6" ' + P + '/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2" ' + P + '/>',
+    spark: '<path d="M12 3.4l1.9 5.2 5.2 1.9-5.2 1.9L12 17.6l-1.9-5.2L4.9 10.5l5.2-1.9L12 3.4Z" ' + P + '/><path d="M18.4 16.6l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9Z" ' + P + '/>',
+    /* --- 徽章图标 --- */
+    sprout: '<path d="M12 20.4v-6.2" ' + P + '/><path d="M12 14.2c0-3 2.2-5.2 5.2-5.2 0 3-2.2 5.2-5.2 5.2Z" ' + P + '/><path d="M12 14.2c0-3.4-2.4-5.8-5.4-5.8 0 3.4 2.4 5.8 5.4 5.8Z" ' + P + '/><path d="M6.6 20.4h10.8" ' + P + '/>',
+    eye: '<path d="M2.6 12S6 5.8 12 5.8 21.4 12 21.4 12 18 18.2 12 18.2 2.6 12 2.6 12Z" ' + P + '/><circle cx="12" cy="12" r="2.9" ' + P + '/>',
+    shield: '<path d="M12 3.6l7 2.5v5.5c0 4.4-2.9 7.4-7 8.8-4.1-1.4-7-4.4-7-8.8V6.1l7-2.5Z" ' + P + '/><path d="M9.1 12l2.1 2.1 3.9-4" ' + P + '/>',
+    moon: '<path d="M20 14.4A8.4 8.4 0 0 1 9.6 4a8.4 8.4 0 1 0 10.4 10.4Z" ' + P + '/>',
+    users: '<circle cx="9.2" cy="8.6" r="3.2" ' + P + '/><path d="M3.2 19.6c0-3.2 2.7-5.4 6-5.4s6 2.2 6 5.4" ' + P + '/><path d="M15.8 5.6a3.2 3.2 0 0 1 0 6.2M17.4 14.4c2 .6 3.4 2.2 3.4 4.4" ' + P + '/>',
+    broom: '<path d="M14.6 4.4l5 5M16.4 9.2 11 14.6" ' + P + '/><path d="M11 14.6l-4.2 4.2c-1.4 1.4-3.4 1.6-4 .6-.6-.6-.4-2.6 1-4L8 11.2l3 3.4Z" ' + P + '/><path d="M6.4 15.4 8 17" ' + P + '/>',
+    zap: '<path d="M13.4 2.8 5.4 13.4h5.4l-1.2 7.8 8-10.6h-5.4l1.2-7.8Z" ' + P + '/>',
+    /* --- 其他 --- */
+    chevron: '<path d="M9.4 5.4 16 12l-6.6 6.6" ' + P + '/>',
+    pin: '<path d="M12 21s6.4-6 6.4-11.2A6.4 6.4 0 0 0 5.6 9.8C5.6 15 12 21 12 21Z" ' + P + '/><circle cx="12" cy="9.8" r="2.4" ' + P + '/>',
+    clock: '<circle cx="12" cy="12" r="8.2" ' + P + '/><path d="M12 7.4V12l3.2 1.9" ' + P + '/>',
+    search: '<circle cx="10.8" cy="10.8" r="6.2" ' + P + '/><path d="M15.4 15.4L20 20" ' + P + '/>',
+    ticket: '<path d="M4 8.4a1.6 1.6 0 0 1 1.6-1.6h12.8A1.6 1.6 0 0 1 20 8.4v1.4a2.2 2.2 0 0 0 0 4.4v1.4a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 15.6v-1.4a2.2 2.2 0 0 0 0-4.4V8.4Z" ' + P + '/><path d="M13.6 7v10" ' + P + ' stroke-dasharray="2 2.4"/>',
+    image: '<rect x="3.4" y="5.2" width="17.2" height="13.6" rx="2" ' + P + '/><circle cx="8.8" cy="10" r="1.5" ' + P + '/><path d="M4.4 16.6l4.6-4 3.4 3 2.8-2.4 4.4 4" ' + P + '/>',
+    inbox: '<path d="M3.8 13.4V6.4A1.8 1.8 0 0 1 5.6 4.6h12.8a1.8 1.8 0 0 1 1.8 1.8v7" ' + P + '/><path d="M3.8 13.4h4l1.2 2.2h6l1.2-2.2h4v4.2a2 2 0 0 1-2 2H7.8a2 2 0 0 1-2-2v-4.2Z" ' + P + '/>',
+    shieldCheck: '<path d="M12 3.6l7 2.5v5.5c0 4.4-2.9 7.4-7 8.8-4.1-1.4-7-4.4-7-8.8V6.1l7-2.5Z" ' + P + '/>',
+    /* 状态栏 */
+    signal: '<rect x="2" y="13" width="3" height="6" rx="1" fill="currentColor"/><rect x="6.6" y="10" width="3" height="9" rx="1" fill="currentColor"/><rect x="11.2" y="7" width="3" height="12" rx="1" fill="currentColor"/><rect x="15.8" y="4" width="3" height="15" rx="1" fill="currentColor"/>',
+    wifi: '<path d="M2.6 8.4a13.4 13.4 0 0 1 18.8 0M6 11.8a8.6 8.6 0 0 1 12 0M9.4 15.2a3.8 3.8 0 0 1 5.2 0" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/><circle cx="12" cy="18.4" r="1.2" fill="currentColor"/>',
+    battery: '<rect x="2.4" y="7.4" width="17.4" height="9.2" rx="2.4" stroke="currentColor" stroke-width="1.5" fill="none" opacity=".5"/><rect x="4.2" y="9.2" width="13" height="5.6" rx="1.2" fill="currentColor"/><path d="M21.4 10.6v2.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".5"/>'
+  };
+
+  function icon(name, size) {
+    const s = size || 18;
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s +
+           '" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+  }
+
+  /* ---------------- toast ---------------- */
+  function toastHost() {
+    let w = document.querySelector('.toast-wrap');
+    if (!w) {
+      w = document.createElement('div');
+      w.className = 'toast-wrap';
+      // 挂在手机画布内，否则会跑到整个浏览器窗口的底部
+      (document.getElementById('device') || document.body).appendChild(w);
+    }
+    return w;
+  }
+
+  function toast(msg, type) {
+    const el = document.createElement('div');
+    el.className = 'toast' + (type ? ' toast--' + type : '');
+    const ic = type === 'ok' ? icon('check', 14) : type === 'err' ? icon('alert', 14) : '';
+    el.innerHTML = ic + '<span>' + escapeHtml(msg) + '</span>';
+    toastHost().appendChild(el);
+    setTimeout(function () {
+      el.classList.add('out');
+      setTimeout(function () { el.remove(); }, 280);
+    }, 2400);
+  }
+
+  /* ---------------- 底部弹层 ---------------- */
+  function sheet(o) {
+    o = o || {};
+    const host = document.getElementById('device') || document.body;
+
+    const mask = document.createElement('div');
+    mask.className = 'mask';
+    mask.innerHTML =
+      '<div class="sheet" role="dialog" aria-modal="true">' +
+        (o.title ? '<div class="h3" style="margin-bottom:4px">' + escapeHtml(o.title) + '</div>' : '') +
+        (o.sub ? '<div class="muted" style="margin-bottom:12px">' + escapeHtml(o.sub) + '</div>' : '') +
+        '<div class="sheet-bd">' + (o.body || '') + '</div>' +
+      '</div>';
+
+    host.appendChild(mask);
+
+    let closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      mask.classList.add('is-out');
+      mask.firstChild.classList.add('is-out');
+      setTimeout(function () { mask.remove(); }, 240);
+      document.removeEventListener('keydown', onKey);
+      o.onClose && o.onClose();
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+
+    mask.addEventListener('click', function (e) {
+      if (e.target === mask || e.target.closest('[data-close]')) close();
+    });
+
+    const api = { el: mask, close: close };
+    o.onMount && o.onMount(api);
+    return api;
+  }
+
+  /* ---------------- 工具 ---------------- */
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /** 相对时间：刚刚 / 26 分钟前 / 3 小时前 / 2 天前 */
+  function fromNow(ms) {
+    const diff = Date.now() - ms;
+    if (diff < 60e3) return '刚刚';
+    if (diff < 3600e3) return Math.floor(diff / 60e3) + ' 分钟前';
+    if (diff < 86400e3) return Math.floor(diff / 3600e3) + ' 小时前';
+    return Math.floor(diff / 86400e3) + ' 天前';
+  }
+
+  /** 日期文本：11 月 24 日 */
+  function dateText(d) {
+    return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
+  }
+
+  global.UI = { icon: icon, ICONS: ICONS, toast: toast, sheet: sheet, escapeHtml: escapeHtml, fromNow: fromNow, dateText: dateText };
+})(window);
+
+</script>
+<script data-from="assets/web.js">
+/* ==========================================================================
+ * 见微 · 网页版交互
+ * --------------------------------------------------------------------------
+ * 和手机端共享 shared/ 下的四个模块：
+ *   tilemap.js  地图     domain.js  领域词汇     auth.js  身份与积分
+ *   agent.js    智能体   data.js     演示数据
+ *
+ * 这个文件只做三件事：
+ *   1. 三栏布局的视图切换与渲染
+ *   2. 上报流程（照片 → 类型 → 位置 → AI 判定 → 结果）
+ *   3. 把选中对象的详情喂给右侧上下文面板
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  const D = window.DATA;
+  const UI = window.UI;
+  const A = window.Auth;
+  const Domain = window.Domain;
+  const SentinelAgent = window.SentinelAgent;
+
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /* ============================================================
+     状态
+     ============================================================ */
+
+  const state = {
+    view: 'map',
+    layer: 'pending',
+    base: 'gaode',
+    heat: false,
+    photo: null,          // 当前选中的照片 kind 或 dataURL
+    type: '',
+    desc: '',
+    addr: '',
+    lng: null,
+    lat: null,
+    located: false,
+    tstatus: 'all',
+    tickets: [],          // 本会话提交的工单
+    picked: null          // 地图上选中的点位
+  };
+
+  const VIEW_META = {
+    map:     { t: '地图',     s: '郑州大学主校区 · 实时点位' },
+    report:  { t: '上报问题', s: '拍照 → 选类型 → 定位 → AI 判定' },
+    tickets: { t: '我的工单', s: '凭编码随时查进度' },
+    query:   { t: '查进度',   s: '不登录也能凭编码查询' },
+    me:      { t: '我的',     s: '信用分 · 积分 · 账号权重' }
+  };
+
+  /* 演示照片的 kind 必须和 data.js 里 photoSVG 的分支对齐：
+     trash / lamp / pothole / puddle / scenery / blur。
+     写成别的名字会画出一张空白图，然后被 AI 判成"没有实体"——
+     这个坑踩过一次，注释留在这里。 */
+  const PHOTOS = [
+    { kind: 'trash',   cap: '垃圾桶满溢' },
+    { kind: 'lamp',    cap: '路灯不亮' },
+    { kind: 'pothole', cap: '路面坑洼' },
+    { kind: 'puddle',  cap: '路面积水' },
+    { kind: 'blur',    cap: '拍糊了' },
+    { kind: 'scenery', cap: '风景照' }
+  ];
+
+  const STATUS_UI = {
+    pending:    { label: '待派单', color: '#C97E15', bg: 'var(--warn-bg)' },
+    processing: { label: '处理中', color: '#2B7A78', bg: 'var(--brand-light)' },
+    resolved:   { label: '已解决', color: '#3E8A5F', bg: 'var(--ok-bg)' },
+    review:     { label: '人工复核', color: '#6B7C8A', bg: 'var(--review-bg)' }
+  };
+
+  /* 类型 → 演示照片，纯为让详情面板有图可看 */
+  const PHOTO_BY_TYPE = {
+    sanitation: 'trash', lighting: 'lamp', road: 'pothole', water: 'puddle',
+    safety: 'pothole', facility: 'pothole', green: 'scenery',
+    traffic: 'pothole', network: 'trash', other: 'scenery'
+  };
+
+  const TYPE_COLOR = {};
+  D.TYPES.forEach(function (t) { TYPE_COLOR[t.key] = t.color || '#2B7A78'; });
+
+  let map = null;
+  let agent = null;
+
+  /* ============================================================
+     工具
+     ============================================================ */
+
+  function hydrate(root) {
+    $$('[data-icon]', root || document).forEach(function (el) {
+      if (el.dataset.done) return;
+      el.innerHTML = UI.icon(el.dataset.icon, +el.dataset.size || 16);
+      el.dataset.done = '1';
+    });
+  }
+
+  function toast(msg, type) {
+    const host = $('#toastHost');
+    const el = document.createElement('div');
+    el.className = 'toast' + (type ? ' is-' + type : '');
+    el.textContent = msg;
+    host.appendChild(el);
+    setTimeout(function () {
+      el.style.transition = 'opacity .3s, transform .3s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(8px)';
+      setTimeout(function () { el.remove(); }, 320);
+    }, 2200);
+  }
+
+  function stars(n) {
+    let s = '';
+    for (let i = 1; i <= 5; i++) s += '<i class="' + (i <= n ? 'on' : '') + '"></i>';
+    return '<span class="stars">' + s + '<span class="n">' + n + '/5</span></span>';
+  }
+
+  function fmtTime(at) {
+    const d = new Date(at);
+    const p = (n) => (n < 10 ? '0' + n : '' + n);
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function distanceText(lng, lat) {
+    const near = D.LANDMARKS.reduce(function (best, m) {
+      const d = window.TileMap.distance(lng, lat, m.lng, m.lat);
+      return d < best.d ? { m: m, d: d } : best;
+    }, { m: null, d: Infinity });
+    return near.m ? near.m.name : '校区内';
+  }
+
+  /* ============================================================
+     视图切换
+     ============================================================ */
+
+  function go(name) {
+    if (!VIEW_META[name]) return;
+    state.view = name;
+
+    $$('.view').forEach(function (v) {
+      v.classList.toggle('is-on', v.dataset.view === name);
+    });
+    $$('.rail-btn').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.view === name);
+    });
+
+    $('#viewTitle').textContent = VIEW_META[name].t;
+    $('#viewSub').textContent = VIEW_META[name].s;
+
+    // 上报页自带 AI 侧栏，把上下文中转栏收掉，主区更宽
+    $('#app').classList.toggle('is-report', name === 'report');
+
+    if (name === 'map') {
+      // 地图容器在切回来之前宽度是 0，必须重新量一次
+      setTimeout(function () { if (map) map.resize(); }, 60);
+    }
+    if (name === 'tickets') renderTickets();
+    if (name === 'me') renderMe();
+    if (name === 'report') renderReportState();
+    if (name === 'query') renderQuery($('#queryInput').value);
+  }
+
+  /* ============================================================
+     地图
+     ============================================================ */
+
+  function initMap() {
+    map = window.TileMap.create($('#mapHolder'), {
+      center: [window.TileMap.CAMPUS.lng, window.TileMap.CAMPUS.lat],
+      zoom: 16,
+      source: 'gaode',
+      // 点击地图时抛个自定义事件出去。「选点模式」在监听着，
+      // 平时没人听，就等于普通点击，不会互相干扰。
+      onClick: function (lng, lat) {
+        $('#mapHolder').dispatchEvent(new CustomEvent('picked', { detail: { lng: lng, lat: lat } }));
+      }
+    });
+    renderMarkers();
+    renderMapStats();
+
+    // 拖拽过程中提示会挡视线，动手就淡出
+    const tip = $('#mapTip');
+    $('#mapHolder').addEventListener('mousedown', function () { tip.style.opacity = '0'; });
+    $('#mapHolder').addEventListener('mouseleave', function () { tip.style.opacity = '1'; });
+  }
+
+  function visiblePoints() {
+    return D.POINTS.filter(function (p) {
+      return state.layer === 'all' || p.status === state.layer;
+    });
+  }
+
+  function renderMarkers() {
+    const list = visiblePoints().map(function (p) {
+      const color = TYPE_COLOR[p.type] || '#2B7A78';
+      const done = p.status === 'resolved';
+      return {
+        id: p.id,
+        lng: p.lng,
+        lat: p.lat,
+        className: 'wm',
+        title: D.TYPE_LABEL[p.type] + ' · ' + p.addr,
+        html: '<span class="wm-dot' + (done ? ' is-done' : '') + '" style="--c:' + color + '">' +
+                '<i></i>' +
+              '</span>',
+        onClick: function () { showPoint(p); }
+      };
+    });
+    map.setMarkers(list);
+    if (state.heat) {
+      map.setHeat(visiblePoints().map(function (p) {
+        return { lng: p.lng, lat: p.lat, weight: (p.merged || 0) + 1 };
+      }));
+    } else {
+      map.setHeat(null);
+    }
+  }
+
+  function renderMapStats() {
+    const pending = D.POINTS.filter((p) => p.status === 'pending').length;
+    const done = D.POINTS.filter((p) => p.status === 'resolved').length;
+    const merged = D.POINTS.filter((p) => p.merged > 0).length;
+    $('#msPending').textContent = pending;
+    $('#msResolved').textContent = done;
+    $('#msMerged').textContent = merged;
+  }
+
+  function showPoint(p) {
+    state.picked = p;
+    const st = D.STATUS[p.status] || D.STATUS.pending;
+    const dept = Domain.deptFor(p.type);
+    // 点位数据里没存严重度，用类型的基准值 + 合并抬升推出来，
+    // 与用户端看到的数字保持一致
+    const sev = Math.min(5, (Domain.type(p.type).base || 2) + (p.merged || 0));
+    const pri = Domain.priorityOf(sev);
+    const photo = p.photo || PHOTO_BY_TYPE[p.type] || 'trash';
+
+    $('#ctxCard').innerHTML =
+      '<div class="ctx-hd">' +
+        '<div style="flex:1">' +
+          '<div class="ctx-title">' + UI.escapeHtml(D.TYPE_LABEL[p.type]) + '</div>' +
+          '<div class="ctx-sub">' + UI.escapeHtml(p.addr) + '</div>' +
+        '</div>' +
+        '<span class="tag" style="color:' + st.color + ';background:' + st.color + '14">' + st.label + '</span>' +
+      '</div>' +
+      '<div class="ctx-pic">' + photoHTML(photo) + '</div>' +
+      '<dl class="kv">' +
+        '<dt>负责部门</dt><dd>' + UI.escapeHtml(dept.name) + '</dd>' +
+        '<dt>紧急度</dt><dd>' + stars(sev) + '</dd>' +
+        '<dt>优先级</dt><dd><span class="tag" style="color:' + pri.color + ';background:' + pri.color + '14">' +
+          pri.id + ' · ' + pri.label + '</span></dd>' +
+        '<dt>反馈人数</dt><dd>' + (p.merged ? (p.merged + 1) + ' 人 · 已合并' : '1 人') + '</dd>' +
+        '<dt>上报时间</dt><dd>' + (p.ago < 1 ? Math.max(1, Math.round(p.ago * 24)) + ' 小时前' : Math.round(p.ago) + ' 天前') + '</dd>' +
+      '</dl>' +
+      (p.merged ?
+        '<div class="ctx-note">这处问题有 <b>' + (p.merged + 1) + ' 个人</b>报过，已合并为一张工单，' +
+        '紧急度比单人上报提升了 <b>' + p.merged + ' 星</b>。</div>' : '') +
+      '<div class="ctx-actions">' +
+        '<button class="btn btn--ghost" id="ctxGoReport">我也要上报</button>' +
+      '</div>';
+
+    $('#ctxGoReport').addEventListener('click', function () {
+      go('report');
+      pickLocation(p.lng, p.lat, p.addr);
+    });
+  }
+
+  /* ============================================================
+     上报
+     ============================================================ */
+
+  /** 照片渲染：内置示意图走 SVG，本地拖进来的走 img */
+  function photoHTML(src) {
+    if (!src) return '';
+    if (src.indexOf('data:') === 0) return '<img src="' + src + '" alt="">';
+    return D.photoSVG(src);
+  }
+
+  function photoForAgent(src) {
+    if (!src) return '';
+    return src.indexOf('data:') === 0 ? src : D.photoDataURI(src);
+  }
+
+  function renderShots() {
+    const local = state.photo && state.photo.indexOf('data:') === 0;
+    const localShot = local
+      ? '<button class="shot is-on" data-photo="__local">' +
+          '<img src="' + state.photo + '" alt="">' +
+          '<span class="cap">本地图片</span>' +
+        '</button>'
+      : '';
+
+    $('#shotList').innerHTML = localShot + PHOTOS.map(function (ph) {
+      return '<button class="shot' + (state.photo === ph.kind ? ' is-on' : '') + '" data-photo="' + ph.kind + '">' +
+               D.photoSVG(ph.kind) +
+               '<span class="cap">' + ph.cap + '</span>' +
+             '</button>';
+    }).join('');
+
+    $$('[data-photo]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.dataset.photo === '__local') return;
+        state.photo = b.dataset.photo;
+        renderShots();
+        renderReportState();
+      });
+    });
+  }
+
+  function renderTypes() {
+    $('#typeList').innerHTML = D.TYPES.map(function (t) {
+      return '<button class="type' + (state.type === t.key ? ' is-on' : '') + '" data-type="' + t.key + '">' +
+               '<span class="ti" data-icon="' + (t.icon || 'wrench') + '"></span>' +
+               '<span>' + t.label + '</span>' +
+             '</button>';
+    }).join('');
+    hydrate($('#typeList'));
+
+    $$('[data-type]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.type = b.dataset.type;
+        renderTypes();
+        renderReportState();
+      });
+    });
+  }
+
+  function renderReportState() {
+    $('#photoState').textContent = state.photo
+      ? (PHOTOS.filter((x) => x.kind === state.photo)[0] || { cap: '本地图片' }).cap
+      : '未选择';
+    $('#photoState').className = 'tag ' + (state.photo ? 'tag--ok' : 'tag--soft');
+
+    const deptTag = $('#deptTag');
+    if (state.type) {
+      const dept = Domain.deptFor(state.type);
+      deptTag.hidden = false;
+      deptTag.textContent = dept.short;
+    } else {
+      deptTag.hidden = true;
+    }
+
+    $('#locState').textContent = state.located ? '已定位' : '未定位';
+    $('#locState').className = 'tag ' + (state.located ? 'tag--ok' : 'tag--soft');
+    if (state.lng) {
+      $('#coordLine').textContent = state.lat.toFixed(5) + ', ' + state.lng.toFixed(5) +
+        ' · 展示时模糊到约 100 米';
+    }
+
+    const miss = [];
+    if (!state.photo) miss.push('照片');
+    if (!state.type) miss.push('类型');
+    if (!state.located) miss.push('位置');
+    $('#submitHint').textContent = miss.length ? '还需要：' + miss.join('、') : '齐了，可以提交';
+    $('#btnSubmit').setAttribute('aria-disabled', miss.length ? 'true' : 'false');
+  }
+
+  function pickLocation(lng, lat, name) {
+    state.lng = lng;
+    state.lat = lat;
+    state.located = true;
+    state.addr = name || distanceText(lng, lat) + '附近';
+    $('#addrInput').value = state.addr;
+    renderReportState();
+  }
+
+  /** 在地图上选点：临时把主地图切到选点模式，选完自动恢复 */
+  function enterPickMode() {
+    go('map');
+    toast('在地图上点一下，就是上报位置');
+    $('#mapTip').textContent = '选点模式 · 点一下确认位置，Esc 取消';
+
+    const holder = $('#mapHolder');
+    holder.classList.add('is-picking');
+
+    function done(lng, lat) {
+      holder.classList.remove('is-picking');
+      holder.removeEventListener('picked', onPicked);
+      document.removeEventListener('keydown', onEsc);
+      $('#mapTip').textContent = '点任意标记看详情 · 拖拽平移 · 滚轮缩放';
+      pickLocation(lng, lat);
+      go('report');
+      toast('位置已更新', 'ok');
+    }
+    function onPicked(e) { done(e.detail.lng, e.detail.lat); }
+    function onEsc(e) {
+      if (e.key !== 'Escape') return;
+      holder.classList.remove('is-picking');
+      holder.removeEventListener('picked', onPicked);
+      document.removeEventListener('keydown', onEsc);
+      $('#mapTip').textContent = '点任意标记看详情 · 拖拽平移 · 滚轮缩放';
+      go('report');
+    }
+    holder.addEventListener('picked', onPicked);
+    document.addEventListener('keydown', onEsc);
+  }
+
+  function getAgent() {
+    if (!agent) {
+      agent = SentinelAgent.create({ mode: 'auto' });
+      agent.probe().then(function (st) {
+        const badge = $('#aiMode');
+        if (badge) badge.textContent = st.mode === 'deepseek' ? 'DeepSeek' : '本地规则';
+      });
+    }
+    return agent;
+  }
+
+  function setSteps(steps) {
+    $('#aiSteps').innerHTML = steps.map(function (s) {
+      return '<div class="ai-step' + (s.cls ? ' is-' + s.cls : '') + '">' +
+               '<span class="bullet"></span><span>' + s.text + '</span></div>';
+    }).join('');
+  }
+
+  async function submit() {
+    if (!state.photo || !state.type || !state.located) {
+      const miss = [];
+      if (!state.photo) miss.push('照片');
+      if (!state.type) miss.push('类型');
+      if (!state.located) miss.push('位置');
+      toast('还差：' + miss.join('、'));
+      return;
+    }
+
+    const btn = $('#btnSubmit');
+    btn.setAttribute('aria-disabled', 'true');
+
+    const ag = getAgent();
+    const st = ag.status();
+    const t0 = Date.now();
+
+    const steps = [
+      { text: '检查照片清晰度与曝光', cls: 'run' },
+      { text: '核对描述与所选类型是否一致' },
+      { text: '生成严重度与处置建议' },
+      { text: '匹配责任部门与合并判断' }
+    ];
+    setSteps(steps);
+
+    const timer = setInterval(function () {
+      const run = steps.findIndex((s) => s.cls === 'run');
+      if (run < 0) return;
+      steps[run].cls = 'done';
+      if (steps[run + 1]) steps[run + 1].cls = 'run';
+      setSteps(steps);
+    }, st.mode === 'deepseek' ? 520 : 300);
+
+    const v = await ag.judge({
+      image: photoForAgent(state.photo),
+      type: state.type,
+      desc: state.desc,
+      address: state.addr,
+      lng: state.lng,
+      lat: state.lat
+    });
+
+    const minWait = st.mode === 'deepseek' ? 900 : 1300;
+    const rest = minWait - (Date.now() - t0);
+    if (rest > 0) await sleep(rest);
+    clearInterval(timer);
+    steps.forEach(function (s) { s.cls = 'done'; });
+    setSteps(steps);
+
+    if (!v.pass) {
+      showReject(v);
+      btn.setAttribute('aria-disabled', 'false');
+      return;
+    }
+
+    const merge = checkMerge();
+    const severity = (merge.merged && merge.severityAfter > v.severity) ? merge.severityAfter : v.severity;
+    const dept = Domain.deptFor(state.type);
+    const s = A.get();
+
+    const ticket = A.registerTicket({
+      type: state.type,
+      addr: state.addr,
+      lng: state.lng,
+      lat: state.lat,
+      dept: dept.name,
+      severity: severity,
+      merged: !!merge.merged,
+      reporters: merge.reporters || 1,
+      ownerId: s ? s.id : A.deviceId(),
+      ownerKind: s ? s.kind : 'guest'
+    });
+
+    const reward = A.rewardValid({ merged: !!merge.merged, crowd: merge.kind === 'crowd' });
+    state.tickets.unshift({
+      code: ticket.code,
+      type: state.type,
+      addr: state.addr,
+      status: 'pending',
+      at: Date.now(),
+      photo: state.photo,
+      severity: severity,
+      dept: dept.name
+    });
+
+    showPass(v, merge, ticket, reward, severity);
+    renderMe();
+    btn.setAttribute('aria-disabled', 'false');
+  }
+
+  function checkMerge() {
+    if (!state.lng || !state.type) return { merged: false, reporters: 1, kind: null };
+    const near = D.findNearby(state.lng, state.lat, state.type, D.POINTS);
+    if (!near.length) return { merged: false, reporters: 1, kind: null };
+
+    const best = near[0];
+    const dist = window.TileMap.distance(state.lng, state.lat, best.lng, best.lat);
+    const reporters = (best.merged || 0) + 1;
+    const before = best.severity || Domain.type(state.type).base || 2;
+    // 同一台设备/同一账号重复报，不给抬票
+    const self = state.votedIds && state.votedIds.indexOf(best.id) >= 0;
+    state.votedIds = state.votedIds || [];
+    state.votedIds.push(best.id);
+    const after = self ? before : Math.min(5, before + Math.min(2, reporters - 1));
+
+    return {
+      merged: true,
+      kind: self ? 'self' : 'crowd',
+      distance: Math.max(1, Math.round(dist)),
+      reporters: reporters,
+      severityBefore: before,
+      severityAfter: after
+    };
+  }
+
+  function showResult(html) {
+    const host = $('#resultHost');
+    host.hidden = false;
+    host.innerHTML = html;
+    $('#reportGrid').hidden = true;
+    host.scrollTop = 0;
+  }
+
+  function hideResult() {
+    const host = $('#resultHost');
+    host.hidden = true;
+    host.innerHTML = '';
+    $('#reportGrid').hidden = false;
+  }
+
+  function showPass(v, merge, ticket, reward, severity) {
+    const dept = Domain.deptFor(state.type);
+    const pri = Domain.priorityOf(severity);
+
+    showResult(
+      '<div class="result-hero">' +
+        '<div class="tick"><svg viewBox="0 0 32 32"><path d="M8 16.6l5.4 5.4L24 11.2"/></svg></div>' +
+        '<div>' +
+          '<div class="rh-t">已经收到</div>' +
+          '<div class="rh-s">' + UI.escapeHtml(v.summary || '谢谢你替这条街多看一眼') + '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="code-big">' +
+        '<div>' +
+          '<div class="cb-k">查询编码</div>' +
+          '<div class="cb-v">' + ticket.code + '</div>' +
+          '<div class="cb-n">凭这串编码在任何设备上都能查进度，不需要登录</div>' +
+        '</div>' +
+        '<button class="cb-copy" data-copy="' + ticket.code + '">复制编码</button>' +
+      '</div>' +
+
+      '<div class="result-body">' +
+        '<div class="card">' +
+          '<div class="card-t">工单信息</div>' +
+          '<dl class="kv" style="margin-top:10px">' +
+            '<dt>类型</dt><dd>' + D.TYPE_LABEL[state.type] + '</dd>' +
+            '<dt>位置</dt><dd>' + UI.escapeHtml(state.addr) + '</dd>' +
+            '<dt>责任部门</dt><dd>' + UI.escapeHtml(dept.name) + '</dd>' +
+            '<dt>紧急度</dt><dd>' + stars(severity) + '</dd>' +
+            '<dt>优先级</dt><dd><span class="tag" style="color:' + pri.color + ';background:' + pri.color + '14">' +
+              pri.id + ' · ' + pri.label + '</span></dd>' +
+          '</dl>' +
+        '</div>' +
+        '<div class="card">' +
+          '<div class="card-t">这次结算</div>' +
+          '<div class="chips">' +
+            '<span class="chip-ok">信用 +' + reward.creditGain + '</span>' +
+            '<span class="chip-pt">积分 +' + reward.pointGain + '</span>' +
+          '</div>' +
+          '<div class="ctx-note">' +
+            (merge.merged
+              ? (merge.kind === 'crowd'
+                  ? '这个位置 ' + merge.distance + ' 米内已有 <b>' + (merge.reporters - 1) + ' 人</b>报过，' +
+                    '已并入同一张工单' +
+                    (merge.severityAfter > merge.severityBefore
+                      ? '，紧急度从 <b>' + merge.severityBefore + ' 星</b>抬到 <b>' + merge.severityAfter + ' 星</b>'
+                      : '，紧急度已在最高档')
+                  : '你之前报过这处，这次并入原工单，不重复开单，也不影响紧急度')
+              : 'AI 建议：' + UI.escapeHtml(v.advice || '已进入待派单池，按类型自动分派')) +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="result-acts">' +
+        '<button class="btn btn--ghost" id="resNew">再报一个</button>' +
+        '<button class="btn btn--primary" id="resQuery">查看这张工单的进度</button>' +
+      '</div>'
+    );
+
+    bindCopy($('[data-copy]'));
+    $('#resNew').addEventListener('click', resetForm);
+    $('#resQuery').addEventListener('click', function () {
+      $('#queryInput').value = ticket.code;
+      go('query');
+    });
+    toast('已提交 · 编码 ' + ticket.code, 'ok');
+  }
+
+  function showReject(v) {
+    const reason = {
+      blur: '画面不够清晰',
+      dark: '照片太暗',
+      overexposed: '照片过曝',
+      flat: '疑似截图或纯色图',
+      'non-facility': '没识别到公共设施',
+      mismatch: '描述与所选类型不一致'
+    }[v.reason] || '信息不足';
+
+    showResult(
+      '<div class="result-hero is-warn">' +
+        '<div class="tick">' +
+          '<svg viewBox="0 0 32 32"><path d="M16 9v9"/><path d="M16 23.2v.2"/></svg>' +
+        '</div>' +
+        '<div>' +
+          '<div class="rh-t">' + UI.escapeHtml(v.message || '这张照片先等等') + '</div>' +
+          '<div class="rh-s">' + UI.escapeHtml(v.detail || '') + '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="result-body">' +
+        '<div class="card">' +
+          '<div class="card-pic" style="border-radius:12px;overflow:hidden;background:#EDF4F3">' +
+            photoHTML(state.photo) +
+          '</div>' +
+        '</div>' +
+        '<div class="card">' +
+          '<div class="card-t">为什么没过</div>' +
+          '<div class="chips"><span class="chip-pt">' + reason + '</span></div>' +
+          '<div class="ctx-note">这次不算你的错，AI 只是想让工单更准。换一张通常就能过；' +
+            '如果你确信信息没问题，也可以直接转人工复核。</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="result-acts">' +
+        '<button class="btn btn--ghost" id="resRetry">换一张照片</button>' +
+        '<button class="btn btn--primary" id="resForce">仍然提交，转人工复核</button>' +
+      '</div>'
+    );
+
+    $('#resRetry').addEventListener('click', function () {
+      state.photo = null;
+      renderShots();
+      renderReportState();
+      hideResult();
+    });
+
+    $('#resForce').addEventListener('click', function () {
+      const s = A.get();
+      const dept = Domain.deptFor(state.type);
+      const tk = A.registerTicket({
+        type: state.type, addr: state.addr, lng: state.lng, lat: state.lat,
+        dept: dept.name, severity: v.severity || 2, merged: false, reporters: 1,
+        ownerId: s ? s.id : A.deviceId(), ownerKind: s ? s.kind : 'guest'
+      });
+      A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
+      state.tickets.unshift({
+        code: tk.code, type: state.type, addr: state.addr, status: 'review',
+        at: Date.now(), photo: state.photo, severity: v.severity || 2, dept: dept.name
+      });
+      toast('已转人工复核 · ' + tk.code, 'ok');
+      go('tickets');
+    });
+  }
+
+  function bindCopy(btn) {
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      const text = btn.dataset.copy;
+      const done = function () {
+        btn.textContent = '已复制';
+        setTimeout(function () { btn.textContent = '复制编码'; }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { toast('复制失败，手动选中复制'); });
+      } else {
+        toast('编码：' + text);
+      }
+    });
+  }
+
+  function resetForm() {
+    state.photo = null;
+    state.type = '';
+    state.desc = '';
+    $('#descInput').value = '';
+    $('#descCount').textContent = '0';
+    hideResult();
+    renderShots();
+    renderTypes();
+    renderReportState();
+    setSteps([
+      { text: '检查照片清晰度与曝光' },
+      { text: '核对描述与所选类型是否一致' },
+      { text: '生成严重度与处置建议' },
+      { text: '匹配责任部门与合并判断' }
+    ]);
+    go('report');
+  }
+
+  /* ============================================================
+     工单列表
+     ============================================================ */
+
+  function allTickets() {
+    const fromAuth = A.myTickets().map(function (t) {
+      return {
+        code: t.code, type: t.type, addr: t.addr, status: t.status,
+        at: t.at, severity: t.severity, dept: t.dept, photo: 'trash'
+      };
+    });
+    const seen = {};
+    return state.tickets.concat(fromAuth).filter(function (t) {
+      if (seen[t.code]) return false;
+      seen[t.code] = 1;
+      return true;
+    }).sort(function (a, b) { return b.at - a.at; });
+  }
+
+  function renderTickets() {
+    const list = allTickets().filter(function (t) {
+      return state.tstatus === 'all' || t.status === state.tstatus;
+    });
+
+    $('#ticketsSub').textContent = '共 ' + allTickets().length + ' 条' +
+      (list.length !== allTickets().length ? ' · 当前筛选 ' + list.length + ' 条' : '');
+
+    if (!list.length) {
+      $('#ticketList').innerHTML =
+        '<div class="empty">还没有工单。<br>去「上报」拍一张，或者用别人给你的编码去「查进度」。</div>';
+      return;
+    }
+
+    $('#ticketList').innerHTML = list.map(function (t) {
+      const st = STATUS_UI[t.status] || STATUS_UI.pending;
+      return '<div class="trow" data-code="' + t.code + '">' +
+               '<div class="thumb">' + photoHTML(t.photo || 'trash') + '</div>' +
+               '<div class="tmain">' +
+                 '<div class="t1">' +
+                   '<span class="ttype">' + (D.TYPE_LABEL[t.type] || t.type) + '</span>' +
+                   '<span class="tstatus" style="color:' + st.color + '">' + st.label + '</span>' +
+                 '</div>' +
+                 '<div class="t2">' + UI.escapeHtml(t.addr) + ' · ' + fmtTime(t.at) + '</div>' +
+               '</div>' +
+               '<span class="tcode">' + t.code + '</span>' +
+             '</div>';
+    }).join('');
+
+    $$('.trow').forEach(function (row) {
+      row.addEventListener('click', function () {
+        $('#queryInput').value = row.dataset.code;
+        go('query');
+      });
+    });
+  }
+
+  /* ============================================================
+     查进度
+     ============================================================ */
+
+  function renderQuery(raw) {
+    const box = $('#queryResult');
+    const code = String(raw || '').trim();
+    if (!code) {
+      box.innerHTML = '<div class="card"><div class="empty">输入编码就能看到这张工单走到哪一步</div></div>';
+      return;
+    }
+
+    const t = A.findTicket(code);
+    if (!t) {
+      box.innerHTML = '<div class="card"><div class="empty">没找到 <b>' +
+        UI.escapeHtml(code.toUpperCase()) + '</b><br>编码形如 JW-8F3K2M，注意别把 O 和 0 弄混</div></div>';
+      return;
+    }
+
+    const st = STATUS_UI[t.status] || STATUS_UI.pending;
+    box.innerHTML =
+      '<div class="card qr">' +
+        '<div class="qr-hd">' +
+          '<div style="flex:1">' +
+            '<div class="qr-code">' + t.code + '</div>' +
+            '<div class="qr-type">' + (D.TYPE_LABEL[t.type] || t.type) + ' · ' + fmtTime(t.at) + '</div>' +
+          '</div>' +
+          '<span class="tag" style="color:' + st.color + ';background:' + st.bg + '">' + st.label + '</span>' +
+        '</div>' +
+        '<dl class="qr-meta">' +
+          '<dt>位置</dt><dd>' + UI.escapeHtml(t.addr) + '</dd>' +
+          '<dt>负责部门</dt><dd>' + UI.escapeHtml(t.dept || '待分派') + '</dd>' +
+          '<dt>紧急度</dt><dd>' + stars(t.severity || 1) + '</dd>' +
+          '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+        '</dl>' +
+        '<div class="tl">' +
+          (t.timeline || []).map(function (e, i) {
+            return '<div class="tl-row' + (i === 0 ? ' is-ok' : '') + '">' +
+                     '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
+                     '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
+                   '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+  }
+
+  /* ============================================================
+     我的
+     ============================================================ */
+
+  function renderMe() {
+    const s = A.get();
+    const guest = !s || s.kind === 'guest';
+
+    $('#meAvatar').textContent = guest ? '游' : (s.name || '同').slice(0, 1);
+    $('#meName').textContent = guest ? '游客' : s.name;
+    $('#meKind').textContent = guest
+      ? '未登录 · 数据只存在这台设备'
+      : (s.kind === 'school' ? '学号 ' + s.id : A.maskPhone(s.id)) + ' · 已登录';
+
+    const credit = s ? s.credit : 70;
+    $('#meCredit').textContent = credit;
+    $('#meCreditBar').style.width = credit + '%';
+    $('#meTier').textContent = A.tierOf(credit).name;
+    $('#mePoints').textContent = s ? (s.points || 0) : 0;
+    $('#meWeight').textContent = (s ? (s.weight || 1) : 1).toFixed(2);
+    $('#meWeightNote').textContent = A.weightLabel(s ? s.weight : 1) +
+      ((s ? s.weight : 1) < 0.6 ? ' · 不计入合并人数' : ' · 合并时计入人数');
+
+    $('#meValid').textContent = s ? (s.validCnt || 0) : 0;
+    $('#meResolved').textContent = s ? (s.resolvedCnt || 0) : 0;
+    $('#meInvalid').textContent = s ? (s.invalidCnt || 0) : 0;
+
+    const owned = (s && s.badges) || [];
+    $('#meBadges').innerHTML = owned.length
+      ? D.BADGES.filter((b) => owned.indexOf(b.code) >= 0).map(function (b) {
+          return '<div class="badge-cell"><div class="bic" data-icon="' + b.icon + '"></div>' +
+                 '<div class="bn">' + b.name + '</div></div>';
+        }).join('')
+      : '<div class="card-s">还没有徽章，第一次有效上报就能拿到「初次出勤」</div>';
+    hydrate($('#meBadges'));
+
+    $('#btnIdentity').textContent = guest ? '登录 / 切换账号' : '退出登录';
+
+    // 顶部身份条与左下角头像
+    $('#idPillText').textContent = guest ? '游客模式' : (s.kind === 'school' ? '学号 ' + s.id : A.maskPhone(s.id));
+    $('#idPill').classList.toggle('is-in', !guest);
+    $('#railAvatar').textContent = guest ? '游' : (s.name || '同').slice(0, 1);
+  }
+
+  /* ============================================================
+     身份闸门
+     ============================================================ */
+
+  let sentCode = '';
+
+  function openGate(canClose) {
+    $('#gate').hidden = false;
+    $('#gClose').hidden = !canClose;
+  }
+  function closeGate() { $('#gate').hidden = true; }
+
+  function bindGate() {
+    $$('[data-gtab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        $$('[data-gtab]').forEach((b) => b.classList.toggle('is-on', b === btn));
+        $$('[data-gpane]').forEach(function (p) {
+          p.classList.toggle('is-on', p.dataset.gpane === btn.dataset.gtab);
+        });
+      });
+    });
+
+    const schoolInput = $('#gSchoolId');
+    schoolInput.addEventListener('input', function () {
+      schoolInput.value = schoolInput.value.replace(/\D/g, '');
+      const c = A.checkSchoolId(schoolInput.value);
+      $('#gSchoolHint').textContent = c.ok
+        ? '已识别：' + schoolInput.value.slice(0, 4) + ' 级 · ' + schoolInput.value.slice(-4) + ' 号'
+        : '校内统一身份 · 无需密码（演示环境 8–12 位数字即可）';
+      $('#gSchoolHint').className = 'gate-hint' + (c.ok ? ' is-ok' : '');
+    });
+
+    $('#gSchoolBtn').addEventListener('click', function () {
+      const r = A.login({ kind: 'school', id: schoolInput.value });
+      if (!r.ok) {
+        $('#gSchoolHint').textContent = r.msg;
+        $('#gSchoolHint').className = 'gate-hint is-warn';
+        return;
+      }
+      seedIfNew(r.user);
+      enter(r.user, '学号 ' + r.user.id.slice(-4) + ' 号');
+    });
+
+    $('#gSend').addEventListener('click', function () {
+      const c = A.checkPhone($('#gPhone').value);
+      if (!c.ok) {
+        $('#gPhoneHint').textContent = c.msg;
+        $('#gPhoneHint').className = 'gate-hint is-warn';
+        return;
+      }
+      sentCode = String(Math.floor(100000 + Math.random() * 900000));
+      $('#gPhoneHint').innerHTML = '验证码已发送，演示码：<b>' + sentCode + '</b>';
+      $('#gPhoneHint').className = 'gate-hint is-ok';
+      $('#gCode').focus();
+    });
+
+    $('#gPhoneBtn').addEventListener('click', function () {
+      if (!sentCode) {
+        $('#gPhoneHint').textContent = '先点「获取验证码」';
+        $('#gPhoneHint').className = 'gate-hint is-warn';
+        return;
+      }
+      if ($('#gCode').value !== sentCode) {
+        $('#gPhoneHint').textContent = '验证码不对';
+        $('#gPhoneHint').className = 'gate-hint is-warn';
+        return;
+      }
+      const r = A.login({ kind: 'phone', id: $('#gPhone').value, code: $('#gCode').value });
+      if (!r.ok) {
+        $('#gPhoneHint').textContent = r.msg;
+        $('#gPhoneHint').className = 'gate-hint is-warn';
+        return;
+      }
+      seedIfNew(r.user);
+      enter(r.user, A.maskPhone(r.user.id));
+    });
+
+    $('#gGuestBtn').addEventListener('click', function () {
+      A.loginGuest();
+      closeGate();
+      renderMe();
+      renderTickets();
+      toast('已进入游客模式 · 提交后会给查询编码');
+    });
+
+    $('#gClose').addEventListener('click', closeGate);
+
+    $('#btnIdentity').addEventListener('click', function () {
+      if (A.get() && A.get().kind !== 'guest') {
+        A.logout();
+        renderMe();
+        renderTickets();
+        toast('已退出登录');
+      } else {
+        openGate(!!A.get());
+      }
+    });
+
+    $('#railAvatar').addEventListener('click', function () {
+      if (!A.get() || A.get().kind === 'guest') openGate(!!A.get());
+      else go('me');
+    });
+  }
+
+  function seedIfNew(s) {
+    if (!s || s.seeded || s.kind === 'guest') return;
+    A.patch({
+      seeded: true,
+      credit: 86,
+      points: 260,
+      weight: 1,
+      validCnt: D.USER.validCnt,
+      resolvedCnt: D.USER.resolvedCnt,
+      invalidCnt: D.USER.invalidCnt,
+      streak: 3,
+      badges: (D.USER.badges || []).slice()
+    });
+  }
+
+  function enter(user, who) {
+    closeGate();
+    renderMe();
+    renderTickets();
+    toast('欢迎，' + who, 'ok');
+  }
+
+  /* ============================================================
+     事件绑定
+     ============================================================ */
+
+  function bind() {
+    $$('.rail-btn').forEach(function (b) {
+      b.addEventListener('click', function () { go(b.dataset.view); });
+    });
+
+    // 地图图层 / 底图 / 热力 / 定位
+    $('#layerSeg').addEventListener('click', function (e) {
+      const b = e.target.closest('[data-layer]');
+      if (!b) return;
+      state.layer = b.dataset.layer;
+      $$('[data-layer]').forEach((x) => x.classList.toggle('is-on', x === b));
+      renderMarkers();
+    });
+
+    $$('[data-base]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.base = b.dataset.base;
+        $$('[data-base]').forEach((x) => x.classList.toggle('is-on', x === b));
+        if (map) map.setSource(state.base);
+      });
+    });
+
+    $('#btnHeat').addEventListener('click', function () {
+      state.heat = !state.heat;
+      $('#btnHeat').classList.toggle('is-on', state.heat);
+      renderMarkers();
+    });
+
+    $('#btnLocate').addEventListener('click', locate);
+
+    // 上报
+    $('#btnPickMap').addEventListener('click', enterPickMode);
+    $('#btnSubmit').addEventListener('click', submit);
+
+    $('#addrInput').addEventListener('input', function (e) {
+      state.addr = e.target.value;
+    });
+
+    $('#descInput').addEventListener('input', function (e) {
+      state.desc = e.target.value.slice(0, 100);
+      $('#descCount').textContent = state.desc.length;
+    });
+
+    // 拖拽照片
+    const dz = $('#dropZone');
+    const fi = $('#fileInput');
+    dz.addEventListener('click', function () { fi.click(); });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('is-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('is-over'); });
+    });
+    dz.addEventListener('drop', function (e) {
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    });
+    fi.addEventListener('change', function () {
+      if (fi.files[0]) loadFile(fi.files[0]);
+    });
+
+    function loadFile(file) {
+      if (!/^image\//.test(file.type)) { toast('只支持图片文件'); return; }
+      const fr = new FileReader();
+      fr.onload = function () {
+        state.photo = fr.result;
+        state.photoLocal = true;
+        renderShots();
+        renderReportState();
+        toast('已载入本地图片 · 只在浏览器里分析');
+      };
+      fr.readAsDataURL(file);
+    }
+
+    // 工单筛选
+    $('#ticketSeg').addEventListener('click', function (e) {
+      const b = e.target.closest('[data-tstatus]');
+      if (!b) return;
+      state.tstatus = b.dataset.tstatus;
+      $$('[data-tstatus]').forEach((x) => x.classList.toggle('is-on', x === b));
+      renderTickets();
+    });
+
+    // 查询
+    $('#btnQuery').addEventListener('click', function () {
+      renderQuery($('#queryInput').value);
+    });
+    $('#queryInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') renderQuery($('#queryInput').value);
+    });
+    $$('[data-fill]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        $('#queryInput').value = b.dataset.fill;
+        renderQuery(b.dataset.fill);
+      });
+    });
+
+    bindGate();
+  }
+
+  /* 定位：桌面浏览器经常拿不到 GPS，失败就引导手选 */
+  function locate() {
+    const btn = $('#btnLocate');
+    if (!navigator.geolocation) {
+      toast('这个浏览器不支持定位，用「在图上报点」吧', 'warn');
+      return;
+    }
+    btn.classList.add('is-on');
+    toast('正在定位…');
+
+    const done = function (lng, lat) {
+      btn.classList.remove('is-on');
+      pickLocation(lng, lat);
+      if (map) map.flyTo(lng, lat, 17);
+      toast('定位成功', 'ok');
+    };
+    const fail = function (msg) {
+      btn.classList.remove('is-on');
+      toast(msg + ' · 用「在图上选点」也一样', 'warn');
+    };
+
+    const timer = setTimeout(function () { fail('定位超时'); }, 9000);
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        clearTimeout(timer);
+        done(pos.coords.longitude, pos.coords.latitude);
+      },
+      function (err) {
+        clearTimeout(timer);
+        fail({
+          1: '定位权限被拒绝',
+          2: '拿不到位置信号',
+          3: '定位超时'
+        }[err.code] || '定位不可用');
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  }
+
+  /* ============================================================
+     启动
+     ============================================================ */
+
+  function boot() {
+    hydrate();
+    initMap();
+    renderShots();
+    renderTypes();
+    renderReportState();
+    renderQuery('');
+    renderMe();
+    renderTickets();
+    bind();
+
+    // 首屏没有身份就挡一层；带 #view=xxx 的直达链接默认以游客进入
+    const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const m = /view=([a-z]+)/.exec(hash);
+    if (!A.get() && !m) openGate(false);
+    if (m) {
+      if (!A.get()) A.loginGuest();
+      go(m[1]);
+      if (m[1] === 'map') { /* 地图需要一帧再量 */ }
+    }
+
+    // 点空白处清掉选中的点位，回到概览
+    $('#ctx').addEventListener('click', function (e) {
+      if (e.target === $('#ctx')) renderOverview();
+    });
+    renderOverview();
+
+    window.addEventListener('resize', function () {
+      if (map) map.resize();
+    });
+  }
+
+  function renderOverview() {
+    $('#ctxCard').innerHTML =
+      '<div class="ctx-hd">' +
+        '<div style="flex:1">' +
+          '<div class="ctx-title">今天在校区里</div>' +
+          '<div class="ctx-sub">' + D.POINTS.length + ' 个点位 · ' +
+            D.POINTS.filter((p) => p.status === 'pending').length + ' 处还没处理</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ctx-note" style="margin-top:0">' +
+        '点地图上的任意标记，这里会显示这一处的现场照片、责任部门和合并情况。' +
+      '</div>' +
+      '<dl class="kv" style="margin-top:14px">' +
+        '<dt>接入底图</dt><dd>高德瓦片 · WGS-84 已纠偏</dd>' +
+        '<dt>智能体</dt><dd id="aiMode">探测中…</dd>' +
+        '<dt>合并规则</dt><dd>15 米 / 24 小时 / 同类型</dd>' +
+      '</dl>' +
+      '<div class="ctx-note">' +
+        '<b>不登录也能用</b><br>提交后会生成查询编码，凭编码在任何设备上都能查进度。' +
+      '</div>';
+    getAgent();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+
+</script>
+</body>
+</html>

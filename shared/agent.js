@@ -573,12 +573,33 @@
           var gates = [vision, sem];
           var severity = sem.severity || estimateSeverity(ctx, metrics);
 
+          /* 一条重要的边界：模型看不到图，只能看到统计量。
+             所以它没有资格否决"画质"——那是本地指标该管的事，
+             而且是确定性的。模型如果拿一堆数字推断"这图太平淡"，
+             就会把夜里的路灯实拍全部毙掉，而路灯问题恰好都发生在夜里。
+             这里把视觉类理由降级成"建议"，只保留语义类（类型错配）的否决权。 */
+          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
+          var soft = false;
+          if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
+            soft = true;
+          }
+
+          /* 同理，语义否决也要有本地规则背书。
+             模型的判断会飘：同一段"路面积水"，它可能算给排水也可能算道路破损。
+             而 domain.js 里的 also 兼容表是人工校过的领域知识。
+             所以规则是：模型 + 本地规则一致才拦，只有模型反对就降级成温馨提示。 */
+          if (!soft && sem.pass === false && sem.reason === 'mismatch' && sem.source === 'deepseek') {
+            var localSem = gateSemanticRules(local);
+            if (localSem.pass) soft = true;
+          }
+
           return finish({
-            pass: sem.pass,
+            pass: soft ? true : sem.pass,
             gates: gates,
-            reason: sem.reason,
+            reason: soft ? null : sem.reason,
             message: sem.message,
-            detail: sem.detail,
+            detail: soft ? '模型仅凭统计量认为画质偏弱，本地指标判定通过，已按通过处理' : sem.detail,
+            softHint: soft ? sem.message : null,
             suggestType: sem.suggestType,
             summary: sem.summary || autoSummary(ctx),
             advice: sem.advice || autoAdvice(ctx),

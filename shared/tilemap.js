@@ -565,6 +565,25 @@
       render: render,
       setMarkers: setMarkers,
       setHeat: setHeat,
+      /**
+       * 运行期换底图（标准 / 卫星 / 路网）。
+       * 换源要把已加载的瓦片全部丢掉，否则旧图会留在屏幕上，
+       * 新瓦片因为 key 已存在而被跳过。
+       */
+      setSource: function (name) {
+        var next = SOURCES[name] || SOURCES.gaode;
+        if (next === source) return api;
+        source = next;
+        state.minZoom = source.minZoom;
+        state.maxZoom = source.maxZoom;
+        Object.keys(state.tiles).forEach(function (k) {
+          var img = state.tiles[k];
+          if (img && img.parentNode) img.parentNode.removeChild(img);
+        });
+        state.tiles = {};
+        renderTiles();
+        return api;
+      },
       /** 平滑移动到某点 */
       flyTo: function (lng, lat, zoom) {
         state.center = [lng, lat];
