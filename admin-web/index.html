@@ -110,6 +110,11 @@
           <input class="search" id="search" type="text" placeholder="搜索工单号、位置、摘要" spellcheck="false">
         </div>
 
+        <button class="btn btn-live" id="btnLive">
+          <span class="live-dot"></span>
+          <span id="btnLiveText">现场模式</span>
+        </button>
+
         <button class="btn btn-ghost" id="btnExport">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
                stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
@@ -121,6 +126,14 @@
         <div class="avatar" title="管理员 · 后勤保障部">后</div>
       </div>
     </header>
+
+    <!-- 现场模式提示条：只在这时候出现，免得平时占地方 -->
+    <div class="live-bar" id="liveBar" hidden>
+      <span class="lb-dot"></span>
+      <span class="lb-t"><b>现场模式</b>　演示数据已清空，只显示现场报上来的工单</span>
+      <span class="lb-n" id="liveCount">0 条</span>
+      <button class="lb-exit" id="btnLiveExit">退出并恢复演示数据</button>
+    </div>
 
     <!-- ============ 视图 1：总览看板 ============ -->
     <section class="view active" data-view="dashboard">
@@ -374,6 +387,7 @@
 
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
+<script src="../shared/payout.js"></script>
 <script src="assets/admin.js"></script>
 </body>
 </html>

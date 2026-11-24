@@ -40,7 +40,7 @@
   };
 
   /** 这三屏是二级页，进入后收起底部导航 */
-  const HIDE_TAB = ['report', 'result', 'badges', 'query'];
+  const HIDE_TAB = ['report', 'result', 'badges', 'query', 'rewards'];
 
   const TABS = [
     { key: 'map',     label: '地图',     icon: 'map' },
@@ -84,10 +84,18 @@
     const to = screenEl(name);
     if (!to) return;
 
-    // 数据屏每次进入都重新渲染，保证提交后的列表、徽章、信用分是新的
+    // 数据屏每次进入都重新渲染，保证提交后的列表、徽章、信用分是新的。
+    // 进这几个屏之前先跟存储对一次账：后台可能刚把某张单子办结并发了积分，
+    // 内存里那份还是旧的，不重读就会显示成"没到账"。
+    if (name === 'reports' || name === 'profile' || name === 'badges' || name === 'rewards') {
+      if (A && A.refresh) A.refresh();
+      applySession();
+    }
+
     if (name === 'reports') { renderReportTabs(); renderReportList(); }
     if (name === 'profile') renderProfile();
     if (name === 'badges') renderBadges();
+    if (name === 'rewards') renderRewards();
 
     if (state.screen === name) return;
 
@@ -416,11 +424,19 @@
      4. 上报屏
      ============================================================ */
 
+  /** 一张照片可能来自样例（SVG）也可能来真相机（dataURL），统一在这里出图 */
+  function photoOf(ph) {
+    if (!ph) return '';
+    if (ph.src) return '<img src="' + ph.src + '" alt="现场照片">';
+    return D.photoSVG(ph.kind);
+  }
+
   function renderPhotos() {
     const grid = $('#photoGrid');
     let html = state.photos.map(function (ph, i) {
       return '<div class="photo-cell photo-pop">' +
-               D.photoSVG(ph.kind) +
+               photoOf(ph) +
+               (ph.src ? '<span class="photo-real">实拍</span>' : '') +
                '<button class="photo-del" data-del="' + i + '" aria-label="删除">' +
                  UI.icon('close', 11) + '</button>' +
              '</div>';
@@ -450,9 +466,14 @@
     if (add) add.addEventListener('click', openPhotoPicker);
   }
 
-  /** 选图面板：不是真调摄像头，而是给几张可控的样例照片 */
+  /**
+   * 选图面板。
+   * 三条路：真拍照（手机直接起相机）、相册、以及演示用的样例图。
+   * 拍照走 <input capture>，在手机上会唤起系统相机；桌面浏览器没有摄像头时
+   * 退化成文件选择，照样能传一张本地的图。
+   */
   function openPhotoPicker() {
-    const options = [
+    const samples = [
       { kind: 'trash',   label: '垃圾桶满溢',  note: '清晰 · 含设施' },
       { kind: 'lamp',    label: '路灯不亮',    note: '夜间 · 主体偏暗' },
       { kind: 'pothole', label: '井盖缺失',    note: '路面 · 有隐患' },
@@ -461,8 +482,19 @@
     ];
 
     const body =
+      '<div class="shot-ways">' +
+        '<button class="sw-btn is-main" data-way="camera">' +
+          '<span class="sw-ic">' + UI.icon('camera', 20) + '</span>' +
+          '<span class="sw-t">拍照<small>直接调起摄像头</small></span>' +
+        '</button>' +
+        '<button class="sw-btn" data-way="album">' +
+          '<span class="sw-ic">' + UI.icon('image', 20) + '</span>' +
+          '<span class="sw-t">从相册选<small>本地已有照片</small></span>' +
+        '</button>' +
+      '</div>' +
+      '<div class="sw-split"><span>或者用样例图试一遍</span></div>' +
       '<div class="picker">' +
-        options.map(function (o) {
+        samples.map(function (o) {
           return '<button class="pick" data-pick="' + o.kind + '">' +
                    '<span class="pick-img">' + D.photoSVG(o.kind) + '</span>' +
                    '<span class="pick-t">' + o.label + '</span>' +
@@ -471,13 +503,13 @@
         }).join('') +
       '</div>' +
       '<div class="hint" style="margin-top:12px;text-align:center;line-height:1.6">' +
-        '演示环境不调摄像头，用样例照片代替。<br>' +
-        '后两张会被 AI 拦下，正好可以看拦截文案。' +
+        '实拍图会在浏览器里先算一遍清晰度、亮度、色彩，再交给 AI 判断内容。<br>' +
+        '照片只留在本机，不上传服务器。' +
       '</div>';
 
     UI.sheet({
-      title: '选择现场照片',
-      sub: '演示环境 · 5 张样例',
+      title: '现场照片',
+      sub: '拍照 · 相册 · 样例',
       body: body,
       onMount: function (api) {
         $$('[data-pick]', api.el).forEach(function (b) {
@@ -488,7 +520,68 @@
             refreshSubmit();
           });
         });
+
+        $$('[data-way]', api.el).forEach(function (b) {
+          b.addEventListener('click', function () {
+            const way = b.dataset.way;
+            api.close();
+            pickFile(way === 'camera');
+          });
+        });
       }
+    });
+  }
+
+  /** 起一个隐藏的 file input。capture 只有手机认得，桌面会忽略。 */
+  function pickFile(camera) {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    if (camera) inp.setAttribute('capture', 'environment');
+    inp.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(inp);
+
+    inp.addEventListener('change', function () {
+      const file = inp.files && inp.files[0];
+      document.body.removeChild(inp);
+      if (!file) return;
+      if (!/^image\//.test(file.type)) { UI.toast('这个文件不是图片', 'warn'); return; }
+
+      UI.toast('正在读取照片…');
+      shrinkImage(file, 1100, 0.82).then(function (dataUrl) {
+        state.photos.push({ kind: 'real', src: dataUrl, real: true });
+        renderPhotos();
+        refreshSubmit();
+        UI.toast('照片已添加', 'ok');
+      }).catch(function () {
+        UI.toast('这张图读不出来，换一张试试', 'warn');
+      });
+    });
+
+    inp.click();
+  }
+
+  /**
+   * 大图直接塞进内存会卡，先缩到长边 max 再转 JPEG。
+   * 1100px 足够 AI 判断，也让 localStorage 装得下。
+   */
+  function shrinkImage(file, max, quality) {
+    return new Promise(function (resolve, reject) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.src = url;
     });
   }
 
@@ -504,9 +597,44 @@
       b.addEventListener('click', function () {
         state.type = b.dataset.type;
         renderTypes();
+        renderPtLadder();
         refreshSubmit();
       });
     });
+  }
+
+  /**
+   * 表单里的积分档位条。
+   *
+   * 提交之前就把「这单大概值多少」摆出来，是为了避免结果页那种落差：
+   * 报的时候以为能拿 90，办结发现只给了 25。这里把五个星级和类型系数
+   * 一起摊开，用户选完类型就能看到自己这一类的价格区间。
+   *
+   * 数字全部来自 Payout，界面不自己算——否则改价之后两边对不上。
+   */
+  function renderPtLadder() {
+    const box = $('#ptLadder');
+    if (!box || !window.Payout) return;
+
+    const typeName = state.type ? (D.TYPE_LABEL[state.type] || '') : '';
+    const rows = Payout.ladder();
+    const pts = rows.map(function (r) {
+      return Payout.estimate({ severity: r.severity, type: state.type || 'other' });
+    });
+
+    box.innerHTML =
+      '<div class="pt-steps">' +
+        rows.map(function (r, i) {
+          return '<span class="pt-step' + (r.severity >= 4 ? ' is-hot' : '') + '">' +
+                   '<b>' + pts[i] + '</b><i>' + r.severity + ' 星</i>' +
+                 '</span>';
+        }).join('') +
+      '</div>' +
+      '<div class="pt-scale">' +
+        (typeName
+          ? '按「' + typeName + '」算 · 独立发现满额，帮别人确认 ×0.6'
+          : '选好类型后，这里会换成这类问题的价格') +
+      '</div>';
   }
 
   /** 模拟定位：真实小程序走 wx.getLocation，这里给个固定的校园坐标 */
@@ -563,6 +691,18 @@
       meta.lastElementChild.textContent =
         lat.toFixed(5) + ', ' + lng.toFixed(5) + ' · 展示时模糊到约 100 米';
     }
+
+    // 地图上标出"我在这里"。
+    // 兜底位置（校区中心）不是真的我，用大光圈表示"只知道在这一带"。
+    if (map) {
+      map.setMe(lng, lat, { spread: source === 'fallback' });
+      // 定位成功时把地图移到我这儿，别让人自己找
+      if (source === 'gps' || source === 'manual') {
+        map.flyTo(lng, lat, Math.max(map.getZoom(), 16));
+        renderMarkers();
+      }
+    }
+
     refreshSubmit();
   }
 
@@ -670,6 +810,7 @@
     $('#addrInput').value = state.addr;
     renderPhotos();
     renderTypes();
+    renderPtLadder();
     refreshSubmit();
   }
 
@@ -728,6 +869,9 @@
 
     const alertEl = $('#locAlert');
     if (alertEl) alertEl.hidden = true;
+
+    // 主地图上的蓝点跟着手选的位置走
+    if (map) map.setMe(lng, lat);
 
     refreshSubmit();
   }
@@ -902,13 +1046,25 @@
     openAiMask();
 
     const v = await ag.judge({
-      image: D.photoDataURI(state.photos[0].kind),
+      image: state.photos[0].src || D.photoDataURI(state.photos[0].kind),
       type: state.type,
       desc: state.desc,
       address: state.addr,
       lng: state.lng,
       lat: state.lat
     });
+
+    // 实拍图不套演示样例的阈值。
+    // 那套 blur/dark 的档位是拿示意图一张张量出来的，真实相机拍的
+    // 夜景、逆光、大面积天空都会落在区间外，硬套必然误杀。
+    // 所以实拍只保留"内容判断"（类型错配、没有设施），画质一律只提示不拦截。
+    const QUALITY_ONLY = { blur: 1, dark: 1, overexposed: 1, flat: 1 };
+    if (!v.pass && state.photos[0].real && QUALITY_ONLY[v.reason]) {
+      v.realPhotoSoft = true;
+      v.pass = true;
+      v.summary = v.summary || '实拍照片已通过内容判断';
+      v.advice = '画质提示仅作参考，已按实拍放行';
+    }
 
     // 真实模型通常 1–3 秒，本地规则只要几十毫秒。
     // 太快反而显得"根本没在看"，兜一个下限，也让讲解有个节拍。
@@ -934,6 +1090,18 @@
       : v.severity;
 
     const s = A.get();
+    const photo0 = state.photos[0];
+
+    // 提交前就把这一单值多少分算清楚，并且存进工单。
+    // 存下来而不是等办结再算，是为了让「预计 +65」和最终到账的数字一定一致：
+    // 这套规则以后要调价，调价不该回头改已经报上去的单子。
+    const rewardKind = merge.merged
+      ? (merge.kind === 'crowd' ? 'crowd' : 'self')
+      : 'solo';
+    const estPoints = window.Payout
+      ? Payout.estimate({ severity: finalSeverity, type: state.type, kind: rewardKind })
+      : 0;
+
     const ticket = A.registerTicket({
       type: state.type,
       addr: state.addr || '已记录坐标',
@@ -943,8 +1111,25 @@
       severity: finalSeverity,
       merged: !!merge.merged,
       reporters: merge.reporters || 1,
+      kind: rewardKind,
+      estPoints: estPoints,
       ownerId: s ? s.id : A.deviceId(),
-      ownerKind: s ? s.kind : 'guest'
+      ownerKind: s ? s.kind : 'guest',
+      // 实拍图带一张缩略图过去，后台现场模式能直接看到现场长什么样
+      photo: photo0.src || null,
+      desc: state.desc || '',
+      // 判定过程也一起存下来：后台要看的是"AI 为什么放行"，不是只看到一个绿点
+      analysis: {
+        pass: !!v.pass,
+        source: v.source || (st.mode === 'deepseek' ? 'deepseek' : 'rules'),
+        reason: v.reason || null,
+        summary: v.summary || '',
+        advice: v.advice || '',
+        soft: !!v.realPhotoSoft,
+        metrics: v.metrics || null,
+        severity: finalSeverity,
+        latency: v.latency || 0
+      }
     });
 
     const rec = {
@@ -955,18 +1140,25 @@
       addr: state.addr || '已记录坐标',
       ago: 0,
       merged: merge.merged ? Math.max(1, merge.reporters - 1) : 0,
+      estPoints: estPoints,
       photo: state.photos[0].kind,
       lng: state.lng,
       lat: state.lat
     };
     state.reports.unshift(rec);
 
-    // 结算走 Auth：学分 + 积分 + 权重一起动，别在这里各改各的
-    const reward = A.rewardValid({ merged: !!merge.merged, crowd: merge.kind === 'crowd' });
+    // 结算走 Auth：这一步只动学分与权重。
+    // 积分一个子儿都不发 —— 等后勤到场核实、真处理完了才结算，
+    // 这里只把预估额带回结果页，让人知道这单值多少、什么时候到。
+    const reward = A.rewardValid({
+      merged: !!merge.merged,
+      crowd: merge.kind === 'crowd',
+      estPoints: estPoints
+    });
     applySession();
     const newBadges = grantBadges(v, merge.merged, true);
 
-    showPass(v, merge, newBadges, ticket.code, reward);
+    showPass(v, merge, newBadges, ticket.code, reward, estPoints);
   }
 
   /**
@@ -1049,7 +1241,7 @@
     return '<span class="stars">' + s + '<span class="n num">' + n + ' / 5</span></span>';
   }
 
-  function showPass(v, merge, newBadges, code, reward) {
+  function showPass(v, merge, newBadges, code, reward, estPoints) {
     const typeLabel = D.TYPE_LABEL[state.type];
     const dept = Domain.deptFor(state.type);
     const isGuest = !state.session || state.session.kind === 'guest';
@@ -1059,6 +1251,21 @@
       ? merge.severityAfter
       : v.severity;
     const pri = Domain.priorityOf(finalSeverity);
+
+    // 说清楚这 65 分是怎么来的：星级、类型、独立发现与否
+    const bd = window.Payout
+      ? Payout.breakdown({
+          severity: finalSeverity,
+          type: state.type,
+          kind: merge.merged ? (merge.kind === 'crowd' ? 'crowd' : 'self') : 'solo'
+        })
+      : null;
+    const pts = typeof estPoints === 'number' ? estPoints : (bd ? bd.points : 0);
+    const bdText = bd
+      ? bd.severity + ' 星 ' + bd.base + ' 分' +
+        (bd.typeW !== 1 ? ' · ' + typeLabel + ' ×' + bd.typeW : '') +
+        (bd.kindW !== 1 ? ' · ' + bd.kindText + ' ×' + bd.kindW : '')
+      : '';
 
     const html =
       '<div class="result-wrap">' +
@@ -1127,12 +1334,18 @@
             '</div>' +
           '</div>' : '') +
 
-        /* 结算反馈：让人当场看到"这趟没白跑" */
+        /* 结算反馈：学分当场结算，积分挂着等办结 —— 这个区别要写在脸上 */
         (reward ?
           '<div class="reward-note">' +
-            '<span class="rw-chip">信用 +' + reward.creditGain + '</span>' +
-            '<span class="rw-chip is-pt">积分 +' + reward.pointGain + '</span>' +
-            '<span class="rw-hint">当前 ' + state.user.credit + ' 分 · ' + state.user.points + ' 积分</span>' +
+            '<div class="rn-top">' +
+              '<span class="rw-chip is-pt is-pending">待发放 +' + pts + ' 积分</span>' +
+              '<span class="rw-chip">信用 +' + reward.creditGain + '</span>' +
+              '<span class="rw-hint">当前 ' + state.user.credit + ' 分 · ' + state.user.points + ' 积分</span>' +
+            '</div>' +
+            '<div class="rn-sub">' +
+              '积分要等<b>后勤到场核实并处理完成</b>之后才自动到账，不是 AI 认了就算。' +
+              (bdText ? '<br>本单：' + bdText + '，合计 <b>' + pts + '</b> 分。' : '') +
+            '</div>' +
           '</div>' : '') +
       '</div>' +
 
@@ -1239,13 +1452,19 @@
 
         // 转人工也要给编码——否则游客这条就彻底查不到了
         const ss = A.get();
+        const sev = v.severity || 2;
+        const estPts = window.Payout
+          ? Payout.estimate({ severity: sev, type: state.type, kind: 'review' })
+          : 0;
         const tk = A.registerTicket({
           type: state.type,
           addr: state.addr || '已记录坐标',
           lng: state.lng, lat: state.lat,
           dept: Domain.deptFor(state.type).name,
-          severity: v.severity || 2,
+          severity: sev,
           merged: false, reporters: 1,
+          kind: 'review',
+          estPoints: estPts,
           ownerId: ss ? ss.id : A.deviceId(),
           ownerKind: ss ? ss.kind : 'guest'
         });
@@ -1259,6 +1478,7 @@
           addr: state.addr || '已记录坐标',
           ago: 0,
           merged: 0,
+          estPoints: estPts,
           photo: state.photos[0] ? state.photos[0].kind : 'scenery'
         });
 
@@ -1284,10 +1504,11 @@
 
   function renderReportTabs() {
     const box = $('#reportTabs');
+    const mine = allMyReports();
     box.innerHTML = TAB_DEFS.map(function (t) {
       const n = t.key === 'all'
-        ? state.reports.length
-        : state.reports.filter(function (r) { return r.status === t.key; }).length;
+        ? mine.length
+        : mine.filter(function (r) { return r.status === t.key; }).length;
       return '<button class="tab' + (state.reportTab === t.key ? ' on' : '') + '" data-tab="' + t.key + '">' +
                t.label + '<span class="c">' + n + '</span>' +
              '</button>';
@@ -1302,12 +1523,47 @@
     });
   }
 
+  /**
+   * 「我的上报」由两部分拼起来：
+   *   state.reports   这一次会话里刚报的（在内存里，刷新就没）
+   *   Auth.myTickets  真落盘的工单（刷新、关页面、换天回来都还在）
+   *
+   * 只读前者会有个很难看的现象：报完刷新一下列表就空了，
+   * 更看不到「积分已到账」——而那恰恰是最想让人看见的一屏。
+   * 两边按编码去重，内存里那份优先（它带着图片样子和合并信息）。
+   */
+  function allMyReports() {
+    const rows = state.reports.slice();
+    const seen = {};
+    rows.forEach(function (r) { if (r.code) seen[r.code] = 1; });
+
+    (A.myTickets ? A.myTickets() : []).forEach(function (t) {
+      if (!t || seen[t.code]) return;
+      rows.push({
+        id: 'tk-' + t.code,
+        code: t.code,
+        type: t.type,
+        status: t.status || 'pending',
+        addr: t.addr,
+        ago: Math.max(0, (Date.now() - t.at) / 3600000),
+        merged: Math.max(0, (t.reporters || 1) - 1),
+        estPoints: t.estPoints,
+        photo: 'scenery',
+        photoSrc: t.photo && t.photo.indexOf('data:') === 0 ? t.photo : null
+      });
+    });
+
+    // 新的在前
+    return rows.sort(function (a, b) { return (a.ago || 0) - (b.ago || 0); });
+  }
+
   function renderReportList() {
-    const list = state.reports.filter(function (r) {
+    const mine = allMyReports();
+    const list = mine.filter(function (r) {
       return state.reportTab === 'all' || r.status === state.reportTab;
     });
 
-    $('#reportsSub').textContent = '共 ' + state.reports.length + ' 条记录';
+    $('#reportsSub').textContent = '共 ' + mine.length + ' 条记录';
     const box = $('#reportList');
 
     if (!list.length) {
@@ -1324,8 +1580,23 @@
       const st = D.STATUS[r.status] || D.STATUS.pending;
       const when = agoText(r.ago);
 
+      // 积分状态以工单里的实际结算记录为准，而不是本地记的那个预估值：
+      // 后台办结后会在工单上写 reward，这里照它显示「已到账」。
+      const tk = r.code ? A.findTicket(r.code) : null;
+      const paid = !!(tk && tk.reward && tk.reward.paid);
+      const pts = paid ? tk.reward.points : (r.estPoints || (tk && tk.estPoints) || 0);
+      const payChip = pts
+        ? '<span class="pay-chip' + (paid ? ' is-paid' : '') + '">' +
+            (paid ? '积分 +' + pts + ' 已到账' : '待发放 +' + pts) +
+          '</span>'
+        : '';
+
       return '<div class="report-item reveal" style="--d:' + (i + 1) + '">' +
-               '<div class="report-thumb">' + D.photoSVG(r.photo) + '</div>' +
+               '<div class="report-thumb">' +
+                 (r.photoSrc
+                   ? '<img src="' + r.photoSrc + '" alt="现场照片">'
+                   : D.photoSVG(r.photo)) +
+               '</div>' +
                '<div class="report-main">' +
                  '<div class="report-top">' +
                    '<span class="report-type">' + D.TYPE_LABEL[r.type] + '</span>' +
@@ -1333,6 +1604,7 @@
                  '</div>' +
                  '<div class="report-addr">' + UI.escapeHtml(r.addr) + '</div>' +
                  '<div class="report-meta">' +
+                   payChip +
                    '<span>' + when + '</span>' +
                    (r.code ? '<span>· <b class="mono">' + UI.escapeHtml(r.code) + '</b></span>' : '') +
                    (r.merged ? '<span>· 已与 ' + r.merged + ' 人合并</span>' : '') +
@@ -1373,6 +1645,10 @@
 
     /* 积分与权重 */
     $('#pPoints').textContent = u.points || 0;
+    // 菜单里那个"积分乐园"后面的余额也一起刷新，否则办结到账后
+    // 上面写着 640、菜单还挂着 0，一看就是没接上
+    const mp = $('#menuPoints');
+    if (mp) mp.textContent = (u.points || 0) + ' 分';
     const w = u.weight || 1;
     $('#pWeight').textContent = w.toFixed(2);
     $('#pWeightHint').textContent = A.weightLabel(w) +
@@ -1760,6 +2036,18 @@
     const st = TICKET_STATUS[t.status] || TICKET_STATUS.pending;
     const typeLabel = (window.DATA.TYPE_LABEL && D.TYPE_LABEL[t.type]) || t.type || '—';
 
+    // 积分状态：到账了就说 +70 已到账，没到就说明卡在哪一步
+    const paid = !!(t.reward && t.reward.paid);
+    const estPts = paid ? t.reward.points
+      : (typeof t.estPoints === 'number' ? t.estPoints
+        : (window.Payout ? Payout.estimate(t) : 0));
+    const payHTML = estPts
+      ? (paid
+          ? '<b style="color:var(--ok)">+' + estPts + ' 已到账</b>'
+          : '<b style="color:var(--warn)">待发放 +' + estPts + '</b>' +
+            '<span style="color:var(--text-3)"> · 后勤到场核实并处理完成后到账</span>')
+      : '—';
+
     box.innerHTML =
       '<div class="qr-card">' +
         '<div class="qr-hd">' +
@@ -1775,6 +2063,7 @@
           '<dt>负责部门</dt><dd>' + UI.escapeHtml(t.dept || '待分派') + '</dd>' +
           '<dt>紧急度</dt><dd>' + starsHTML(t.severity || 1) + '</dd>' +
           '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+          '<dt>积分</dt><dd>' + payHTML + '</dd>' +
         '</dl>' +
         '<div class="tl">' +
           (t.timeline || []).map(function (e, i) {
@@ -1801,6 +2090,185 @@
     });
   }
 
+  /* ============================================================
+     积分乐园：抽奖 / 商城
+     ------------------------------------------------------------
+     两块共用一份积分，但玩法互不相干：
+     抽的是非卖品，买的是明码标价。
+
+     原来还有第三块「宠物养成」，后来整个删掉了 —— 那是另一个游戏，
+     跟"上报—派单—办结"这条链没有因果关系，放在这里只会分散注意力。
+     积分有两个出口已经够用，而且这两个都能直接挂在上报这件事上讲。
+     ============================================================ */
+
+  let rwTab = 'lottery';
+  let rwDrawing = false;
+  let rwLastPrize = null;
+
+  const RW_KIND = {
+    frame: { label: '头像框', hint: '换掉名字旁边那一圈' },
+    title: { label: '称号',  hint: '挂在昵称后面' }
+  };
+
+  function renderRewards() {
+    const R = window.Rewards;
+    if (!R) return;
+
+    const pts = R.points();
+    $('#rwPoints').textContent = pts;
+    const mp = $('#menuPoints');
+    if (mp) mp.textContent = pts + ' 分';
+
+    $$('#rwTabs .rw-seg-btn').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.rw === rwTab);
+    });
+
+    const body = $('#rwBody');
+    if (rwTab === 'mall') body.innerHTML = mallHTML();
+    else body.innerHTML = lotteryHTML();
+
+    bindRewards();
+  }
+
+  /* ---------------- 抽奖 ---------------- */
+
+  function lotteryHTML() {
+    const R = window.Rewards;
+    const pts = R.points();
+    const st = R.get();
+    const pool = R.LOTTERY.slice().sort(function (a, b) { return a.weight - b.weight; });
+
+    const result = rwLastPrize
+      ? '<div class="rw-drop">' +
+          '<div class="rd-k">上次抽到</div>' +
+          '<div class="rd-v">' + UI.escapeHtml(rwLastPrize.name) + '</div>' +
+          (rwLastPrize.desc ? '<div class="rd-d">' + UI.escapeHtml(rwLastPrize.desc) + '</div>' : '') +
+        '</div>'
+      : '';
+
+    return '<div class="rw-hero reveal">' +
+             '<div class="rh-dice">' + UI.icon('dice', 34) + '</div>' +
+             '<div class="rh-t">抽一次</div>' +
+             '<div class="rh-s">奖池里全是商城不卖的东西，抽到重复的自动折 60 分</div>' +
+             '<button class="btn btn--primary btn--block" id="btnDraw" ' +
+               (pts < R.DRAW_COST ? 'aria-disabled="true"' : '') + '>' +
+               '花 ' + R.DRAW_COST + ' 分抽一次' +
+             '</button>' +
+             '<div class="rh-h">已抽 ' + st.draws + ' 次 · 当前 ' + pts + ' 分</div>' +
+             result +
+           '</div>' +
+
+           '<div class="rw-sec-h">奖池</div>' +
+           '<div class="pool-list">' +
+             pool.map(function (p) {
+               return '<div class="pool-row' + (p.rare ? ' is-rare' : '') + '">' +
+                        '<span class="pr-dot"></span>' +
+                        '<span class="pr-n">' + UI.escapeHtml(p.name) + '</span>' +
+                        (p.rare ? '<span class="pr-tag">限定</span>' : '') +
+                        '<span class="pr-w num">' + p.weight + '%</span>' +
+                      '</div>';
+             }).join('') +
+           '</div>' +
+           '<div class="rw-note">概率按权重折算，「再来一次」等于这次免费，' +
+             '「谢谢参与」只扣积分不给东西——抽之前先看一眼这张表。</div>';
+  }
+
+  /* ---------------- 商城 ---------------- */
+
+  function mallHTML() {
+    const R = window.Rewards;
+    const st = R.get();
+    const groups = { frame: [], title: [] };
+    R.MALL.forEach(function (it) { (groups[it.kind] || (groups[it.kind] = [])).push(it); });
+
+    return Object.keys(groups).map(function (kind) {
+      const items = groups[kind];
+      if (!items.length) return '';
+      const meta = RW_KIND[kind] || { label: kind, hint: '' };
+
+      return '<div class="rw-sec">' +
+               '<div class="rw-sec-h">' + meta.label +
+                 '<span class="rw-sec-n">' + meta.hint + '</span>' +
+               '</div>' +
+               '<div class="mall-grid">' +
+                 items.map(function (it) {
+                   const owned = st.owned.indexOf(it.id) >= 0;
+                   const on = st.frame === it.id || st.title === it.id;
+                   const can = R.points() >= it.cost;
+
+                   return '<button class="mall-card' + (owned ? ' is-owned' : '') + (on ? ' is-on' : '') + '" ' +
+                            'data-buy="' + it.id + '"' + (can || owned ? '' : ' aria-disabled="true"') + '>' +
+                            '<span class="mc-ic">' + UI.icon(it.icon, 19) + '</span>' +
+                            '<span class="mc-t">' + UI.escapeHtml(it.name) + '</span>' +
+                            '<span class="mc-d">' + UI.escapeHtml(it.desc || '') + '</span>' +
+                            '<span class="mc-c">' +
+                              (owned
+                                ? (on ? '使用中' : '点一下换上')
+                                : '<b class="num">' + it.cost + '</b> 分') +
+                            '</span>' +
+                          '</button>';
+                 }).join('') +
+               '</div>' +
+             '</div>';
+    }).join('') +
+    '<div class="rw-note">买了立刻换上；再点一次可以摘下来。积分不够的卡片是灰的，不会误点。</div>';
+  }
+
+  /* ---------------- 绑定 ---------------- */
+
+  function bindRewards() {
+    const R = window.Rewards;
+
+    const drawBtn = $('#btnDraw');
+    if (drawBtn) {
+      drawBtn.addEventListener('click', function () {
+        if (rwDrawing) return;
+        const r = R.draw();
+        if (!r.ok) { UI.toast(r.reason, 'warn'); return; }
+
+        rwDrawing = true;
+        drawBtn.setAttribute('aria-disabled', 'true');
+        drawBtn.textContent = '抽取中…';
+
+        const names = R.LOTTERY.map(function (x) { return x.name; });
+        let i = 0;
+        const spin = setInterval(function () {
+          drawBtn.textContent = names[i++ % names.length];
+        }, 70);
+
+        setTimeout(function () {
+          clearInterval(spin);
+          rwDrawing = false;
+          rwLastPrize = r.prize;
+          renderRewards();
+          UI.toast('抽到「' + r.prize.name + '」', r.prize.kind === 'empty' ? 'warn' : 'ok');
+        }, 900);
+      });
+    }
+
+    $$('[data-buy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const id = b.dataset.buy;
+        const item = R.findItem(id);
+        if (!item) return;
+
+        if (R.owns(id)) {
+          if (R.equip(id)) {
+            renderRewards();
+            UI.toast('已换上「' + item.name + '」', 'ok');
+          }
+          return;
+        }
+
+        const res = R.buy(id);
+        if (!res.ok) { UI.toast(res.reason, 'warn'); return; }
+        renderRewards();
+        applySession();
+        UI.toast('已入手「' + item.name + '」', 'ok');
+      });
+    });
+  }
+
   function boot() {
     // 状态栏图标
     $('#sbIcons').innerHTML = UI.icon('signal', 15) + UI.icon('wifi', 15) + UI.icon('battery', 22);
@@ -1823,6 +2291,7 @@
 
     renderPhotos();
     renderTypes();
+    renderPtLadder();
     bindReport();
     bindAuth();
     bindQuery();
@@ -1837,6 +2306,15 @@
 
     if (!A.get()) showGate(false);
 
+    // 积分乐园的三个页签只绑一次（内容区每次重渲染，页签本身不动）
+    $$('#rwTabs .rw-seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (rwTab === b.dataset.rw) return;
+        rwTab = b.dataset.rw;
+        renderRewards();
+      });
+    });
+
     // 全局点击路由
     document.addEventListener('click', function (e) {
       const t = e.target.closest('[data-go]');
@@ -1844,11 +2322,6 @@
     });
 
     $('#btnReset').addEventListener('click', resetDemo);
-
-    $('#btnExchange').addEventListener('click', function () {
-      const u = state.user;
-      UI.toast('积分商城正在筹备 · 你现在有 ' + (u.points || 0) + ' 积分', 'ok');
-    });
 
     hydrate();
 

@@ -153,6 +153,20 @@
           <div class="hint" style="margin-top:8px">不用写得很正式，AI 会帮你整理成工单</div>
         </div>
 
+        <!-- 积分：什么才算数，讲在提交之前 -->
+        <div class="pt-card reveal" style="--d:4">
+          <div class="pt-hd">
+            <span class="pt-ic" data-icon="gift" data-size="15"></span>
+            <span class="pt-t">这一单值多少积分</span>
+            <span class="pt-tag">办结后到账</span>
+          </div>
+          <div class="pt-ladder" id="ptLadder"></div>
+          <div class="pt-note">
+            <b>AI 认了不算，后勤到场核实并处理完才算。</b>
+            分按问题的紧急度和类型给，越急越贵；帮别人确认同一处会打折，不会白报，但也别指望靠这个攒分。
+          </div>
+        </div>
+
         <div class="submit-dock">
           <button class="btn btn--primary btn--block" id="btnSubmit" aria-disabled="true">提交上报</button>
           <div class="dock-hint">所有 AI 判断仅供参考，最终以人工复核为准</div>
@@ -203,7 +217,7 @@
           <div class="score-cell">
             <div class="sc-k">积分</div>
             <div class="sc-v num" id="pPoints">0</div>
-            <div class="sc-h">有效 +10 · 解决 +30 · 乱报 −20</div>
+            <div class="sc-h">办结后 +20~90 · 乱报 −20</div>
           </div>
           <div class="score-cell">
             <div class="sc-k">账号权重</div>
@@ -244,15 +258,15 @@
             <span class="grow">凭编码查进度</span>
             <span class="arrow" data-icon="chevron" data-size="14"></span>
           </button>
+          <button class="menu-item" data-go="rewards">
+            <span class="mi" data-icon="gift" data-size="17"></span>
+            <span class="grow">积分乐园</span>
+            <span class="tag tag--ok" style="margin-right:2px" id="menuPoints">0 分</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
           <button class="menu-item" id="btnLogout">
             <span class="mi" data-icon="back" data-size="17"></span>
             <span class="grow" id="logoutLabel">切换账号 / 退出登录</span>
-            <span class="arrow" data-icon="chevron" data-size="14"></span>
-          </button>
-          <button class="menu-item" id="btnExchange">
-            <span class="mi" data-icon="zap" data-size="17"></span>
-            <span class="grow">积分兑换</span>
-            <span class="tag tag--review" style="margin-right:2px">即将开放</span>
             <span class="arrow" data-icon="chevron" data-size="14"></span>
           </button>
         </div>
@@ -309,11 +323,39 @@
         </div>
       </section>
 
+      <!-- ========== 8. 积分乐园 ========== -->
+      <section class="screen" data-screen="rewards">
+        <div class="nav">
+          <button class="nav-back" data-go="profile" aria-label="返回">
+            <span data-icon="back" data-size="19"></span>
+          </button>
+          <div class="nav-title">积分乐园</div>
+        </div>
+
+        <div class="rw-balance reveal">
+          <div class="rb-l">
+            <div class="rb-k">可用积分</div>
+            <div class="rb-v"><span class="num" id="rwPoints">0</span><small>分</small></div>
+          </div>
+          <div class="rb-r">
+            <div class="rb-h">后勤办结 <b>+20~90</b></div>
+            <div class="rb-h">乱报复核 <b>−20</b></div>
+            <div class="rb-h is-mute">积分只在登录后累计</div>
+          </div>
+        </div>
+
+        <div class="rw-seg reveal" style="--d:1" id="rwTabs">
+          <button class="rw-seg-btn is-on" data-rw="lottery">抽奖</button>
+          <button class="rw-seg-btn" data-rw="mall">商城</button>
+        </div>
+
+        <div id="rwBody"></div>
+      </section>
+
     </div>
 
     <!-- 底部导航 -->
-    <nav class="tabbar" id="tabbar"></nav>
-    <div class="hi-bar"><i></i></div>
+    <nav class="tabbar" id="tabbar"></nav>    <div class="hi-bar"><i></i></div>
 
     <!-- ========== 身份闸门：首次进入时挡在前面 ========== -->
     <div class="auth-gate" id="authGate" hidden>
@@ -423,7 +465,9 @@
 
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
+<script src="../shared/payout.js"></script>
 <script src="../shared/auth.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/agent.js"></script>
 <script src="assets/js/ui.js"></script>
 <script src="../shared/data.js"></script>

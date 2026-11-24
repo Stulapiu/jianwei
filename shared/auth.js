@@ -7,7 +7,8 @@
  * （刷单、报复性乱报）。这个模块用三层数字把它们分开：
  *
  *   信用分 credit  0–100   资格。低于 60 的提交一律进人工复核。
- *   积分   points  只增     收益。有效上报 +10，问题被解决 +30，乱报 −20。
+ *   积分   points  只增     收益。**不在这里发**——后勤到场核实并处理完，
+ *                           由 payout.js 按问题程度结算（20–90 分）；乱报 −20。
  *   权重   weight  0.3–1.5  投票权。乱报会衰减；权重低的账号不给别人的工单"抬票"。
  *
  * 三者互不替代：信用分低但积分高的人可以继续报（只是要人看一眼），
@@ -147,6 +148,25 @@ window.Auth = (function () {
   /** 页面刷新后恢复；没有会话返回 null */
   function get() { return session; }
 
+  /**
+   * 从存储里重读当前档案。
+   *
+   * 后台办结工单时会直接往 profiles 里加积分（见 payout.js），
+   * 但用户端内存里那份 session 还是旧的。切到「我的」或「积分乐园」
+   * 时调一次，积分当场就涨了 —— 不用让人按刷新。
+   */
+  function refresh() {
+    if (!session) return null;
+    const store = read(KEY + '.profiles', {}) || {};
+    const fresh = store[profileKey(session.kind, session.id)];
+    if (fresh) {
+      session = fresh;
+      write(KEY, session);
+      emit();
+    }
+    return session;
+  }
+
   function isGuest() { return !session || session.kind === 'guest'; }
 
   function relabel(name) {
@@ -187,7 +207,13 @@ window.Auth = (function () {
   }
 
   /**
-   * 一次有效上报的结算。
+   * 一次有效上报的结算 —— 只结信用与权重，**不发积分**。
+   *
+   * 积分为什么要留到后面：AI 说"通过"只代表这张照片像回事，不代表现场
+   * 真的有东西可修。当场发钱等于奖励"会拍照"，也给刷单留了口子。
+   * 真正结算在后勤办结那一步（见 payout.js），这里只把预估分
+   * 算出来带回去，让用户当场知道"这单值多少、什么时候到"。
+   *
    * @param {boolean} merged    是否并入了已有工单
    * @param {boolean} crowd     是否属于"多人报同一处"
    */
@@ -200,22 +226,26 @@ window.Auth = (function () {
     const creditGain = o.merged ? 1 : 2;
     session.credit = Math.min(100, session.credit + creditGain);
 
-    // 积分：独立分 +10；顺手帮别人合并算半份，避免刷单
-    const pointGain = o.merged ? 5 : 10;
-    session.points = (session.points || 0) + pointGain;
+    // 积分：这次一个子儿都不发，只把预估额带出去
+    const estPoints = o.estPoints != null ? o.estPoints : 0;
 
     // 权重缓慢回血，但不会因为一次有效上报就洗白
     session.weight = Math.min(1.5, (session.weight || 1) + 0.02);
 
     persist();
-    return { creditGain: creditGain, pointGain: pointGain };
+    return { creditGain: creditGain, pointGain: 0, estPoints: estPoints, deferred: true };
   }
 
-  /** 问题被确认解决后的追加结算 */
-  function rewardResolved() {
+  /**
+   * 问题被确认解决后的追加结算。
+   * 保留它是为了兼容早期的调用方；新的结算一律走 Payout.settle，
+   * 那边会按问题程度算分、写回工单时间线，也保证不会重复发。
+   */
+  function rewardResolved(points) {
     if (!session) return;
+    const pts = typeof points === 'number' ? points : 30;
     session.resolvedCnt = (session.resolvedCnt || 0) + 1;
-    session.points = (session.points || 0) + 30;
+    session.points = (session.points || 0) + pts;
     session.credit = Math.min(100, session.credit + 3);
     persist();
   }
@@ -283,8 +313,17 @@ window.Auth = (function () {
       severity: t.severity,
       merged: !!t.merged,
       reporters: t.reporters || 1,
+      // 奖励方式与预估积分：提交那一刻就定死，办结时按这个数发，
+      // 不能等办结再算——规则改过了、或者后台改过紧急度，都会让
+      // 用户看到的「预计 +65」和实际到账对不上。
+      kind: t.kind || (t.merged ? 'crowd' : 'solo'),
+      estPoints: typeof t.estPoints === 'number' ? t.estPoints : 0,
       ownerId: t.ownerId,
       ownerKind: t.ownerKind,
+      // 下面三项是给后台"现场模式"看的：现场长什么样、说了什么、AI 怎么判的
+      photo: t.photo || null,
+      desc: t.desc || '',
+      analysis: t.analysis || null,
       at: Date.now(),
       timeline: [{ at: Date.now(), label: '已提交，进入待派单池', tone: 'ok' }]
     };
@@ -314,6 +353,19 @@ window.Auth = (function () {
       .sort(function (a, b) { return b.at - a.at; });
   }
 
+  /**
+   * 全部工单，不分谁报的。
+   * 后台"现场模式"靠它把现场真报上来的单子接进看板 ——
+   * 三个端同源（同一个 github.io 域名），localStorage 是通的，
+   * 所以手机上报一条，投屏上的后台几秒后就能看见。
+   */
+  function allTickets() {
+    const codes = loadCodes();
+    return Object.keys(codes)
+      .map(function (k) { return codes[k]; })
+      .sort(function (a, b) { return b.at - a.at; });
+  }
+
   function advanceTicket(code, status, label) {
     const codes = loadCodes();
     const c = normalizeCode(code);
@@ -335,6 +387,8 @@ window.Auth = (function () {
       severity: 3,
       merged: true,
       reporters: 4,
+      kind: 'crowd',
+      estPoints: 25,                   // 3 星 45 分 × 并单 0.6 ≈ 25，还没办结
       at: Date.now() - 26 * 3600 * 1000,
       demo: true,
       timeline: [
@@ -353,13 +407,16 @@ window.Auth = (function () {
       severity: 4,
       merged: false,
       reporters: 1,
+      kind: 'solo',
+      estPoints: 70,
+      reward: { points: 70, paid: true, kind: 'solo', kindText: '独立发现', at: Date.now() - 2 * 24 * 3600 * 1000 },
       at: Date.now() - 3 * 24 * 3600 * 1000,
       demo: true,
       timeline: [
         { at: Date.now() - 3 * 24 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
         { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
         { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口，回填塌陷' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，感谢你的上报', tone: 'ok' }
+        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，70 积分已到账', tone: 'ok' }
       ]
     }
   };
@@ -368,6 +425,7 @@ window.Auth = (function () {
 
   return {
     get: get,
+    refresh: refresh,
     login: login,
     loginGuest: loginGuest,
     logout: logout,
@@ -394,6 +452,7 @@ window.Auth = (function () {
     registerTicket: registerTicket,
     findTicket: findTicket,
     myTickets: myTickets,
+    allTickets: allTickets,
     advanceTicket: advanceTicket,
     normalizeCode: normalizeCode
   };

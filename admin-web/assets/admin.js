@@ -759,7 +759,8 @@
               ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
               : '') +
             (o.status !== 'resolved'
-              ? '<button class="op" data-act="done" data-id="' + o.id + '">完成</button>'
+              ? '<button class="op op-done" data-act="done" data-id="' + o.id + '" ' +
+                  'title="办结并向上报人发放积分">办结</button>'
               : '') +
             '<button class="op" data-act="detail" data-id="' + o.id + '">详情</button>' +
           '</div>' +
@@ -808,15 +809,41 @@
           return;
         }
 
-        ORDERS.forEach(function (o) {
-          if (o.id !== id) return;
-          if (act === 'start') o.status = 'processing';
-          if (act === 'done') o.status = 'resolved';
-        });
+        var target = ORDERS.filter(function (x) { return x.id === id; })[0];
+        if (!target) return;
+
+        if (act === 'start') {
+          target.status = 'processing';
+          renderOrders();
+          renderMetrics();
+          toast('已受理，已通知负责班组', 'ok');
+          return;
+        }
+
+        // ---- 办结 = 发积分的唯一入口 ----
+        // 积分不是 AI 放行时发的，是这里发的。后台点这一下，等于确认
+        // 「人到过现场、问题真解决了」，钱才该出去。
+        target.status = 'resolved';
+
+        var pay = null;
+        if (window.Payout && (target.live || target.code)) {
+          // 现场模式进来的单子带的是真实编码，能落到具体某个上报人头上
+          pay = Payout.settle(target.orderNo, { note: '后勤已到场核实并处理完成 · 积分到账' });
+          if (pay && pay.ok) target.reward = { points: pay.points, paid: true };
+        }
 
         renderOrders();
         renderMetrics();
-        toast(act === 'start' ? '已受理，已通知负责班组' : '已标记完成，反馈已推送给上报人', 'ok');
+
+        if (pay && pay.ok) {
+          toast('已办结 · ' + pay.points + ' 积分已发放给上报人', 'ok');
+        } else if (pay && pay.already) {
+          toast('已办结 · 这张单的积分之前就发过了，不重复发', 'ok');
+        } else if (pay && pay.msg) {
+          toast('已办结 · ' + pay.msg, 'warn');
+        } else {
+          toast('已办结（演示工单没有真实上报人，不涉及积分发放）', 'ok');
+        }
       });
     });
 
@@ -1220,6 +1247,10 @@
           '<b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) + '</div>' +
       '</div>' +
 
+      (o.live ? liveSection(o) : '') +
+
+      paySection(o) +
+
       '<div class="dr-section">' +
         '<div class="dr-section-title">上报记录 · ' + o.reports.length + ' 条 / ' + uniq.length + ' 人</div>' +
         o.reports.map(function (r) {
@@ -1242,6 +1273,34 @@
 
     $('#drawer').classList.add('on');
     $('#drawerMask').classList.add('on');
+
+    // 抽屉里也能直接办结发分：看完现场照片、确认没问题，就地处理，
+    // 不用退回去到列表里再找一遍这一行。
+    var payBtn = $('#drawerBody [data-pay]');
+    if (payBtn) {
+      payBtn.addEventListener('click', function () {
+        var code = payBtn.dataset.pay;
+        var pay = window.Payout ? Payout.settle(code) : null;
+
+        if (!pay || !pay.ok) {
+          toast((pay && pay.msg) || '结算失败', 'warn');
+          return;
+        }
+
+        ORDERS.forEach(function (x) {
+          if (x.orderNo !== code) return;
+          x.status = 'resolved';
+          x.reward = { points: pay.points, paid: true };
+        });
+
+        renderOrders();
+        renderMetrics();
+
+        var fresh = ORDERS.filter(function (x) { return x.orderNo === code; })[0];
+        if (fresh) openDrawer(fresh);
+        toast('已办结 · ' + pay.points + ' 积分已发放给上报人', 'ok');
+      });
+    }
   }
 
   function closeDrawer() {
@@ -1315,6 +1374,265 @@
   }
 
   /* ======================================================================
+   * 现场模式
+   * ----------------------------------------------------------------------
+   * 演示时最尴尬的一幕：你在台上说"刚收到一条上报"，屏幕上却躺着一堆
+   * 早就准备好的假数据。开这个模式，演示数据立刻清空，看板只接现场真报
+   * 上来的工单 —— 手机报一条，这边两秒后长出来一条。
+   *
+   * 三端同源（都在同一个域名下），localStorage 是通的，
+   * 所以不需要后端也能做到这件事。
+   * ==================================================================== */
+
+  var LIVE = { on: false, seen: {}, timer: null };
+  var BLOCK_LOG_SEED = BLOCK_LOG.slice();
+
+  function ticketToOrder(t) {
+    var meta = D.type(t.type);
+    var a = t.analysis || null;
+    return {
+      id: 'live-' + t.code,
+      orderNo: t.code,
+      type: t.type,
+      address: t.addr,
+      baseSeverity: t.severity,
+      severity: t.severity,
+      summary: t.desc || (meta.label + ' · 现场上报'),
+      advice: (a && a.advice) || 'AI 已放行，按类型自动派单',
+      lng: t.lng,
+      lat: t.lat,
+      dept: D.deptFor(t.type),
+      status: t.status === 'resolved' ? 'resolved' : t.status === 'processing' ? 'processing' : 'pending',
+      createdAt: t.at,
+      reports: [{ by: '现场', credit: 80, at: t.at, selfDup: false }],
+      live: true,
+      code: t.code,
+      // 积分：提交时算好的预估额、上报方式、以及到底发没发
+      estPoints: t.estPoints,
+      kind: t.kind,
+      reward: t.reward || null,
+      photo: t.photo || null,
+      analysis: a
+    };
+  }
+
+  /**
+   * 直接从 localStorage 里读编码表。
+   * 后台没有引 Auth 模块（它带着账号、闸门那一套，后台用不上），
+   * 这里只要一张编码表就够了。键名和 auth.js 里的 CODE_KEY 是同一个。
+   */
+  function liveOrders() {
+    var raw;
+    try { raw = localStorage.getItem('jw.codes.v2'); } catch (e) { return []; }
+    if (!raw) return [];
+    var codes;
+    try { codes = JSON.parse(raw); } catch (e) { return []; }
+
+    return Object.keys(codes)
+      .map(function (k) { return codes[k]; })
+      .filter(function (t) { return t && t.lng && t.lat && t.type; })
+      .sort(function (a, b) { return b.at - a.at; })
+      .map(ticketToOrder);
+  }
+
+  function syncLive(quiet) {
+    if (!LIVE.on) return;
+
+    var fresh = liveOrders();
+    var added = 0;
+
+    fresh.forEach(function (o) {
+      if (LIVE.seen[o.id]) return;
+      LIVE.seen[o.id] = 1;
+      // 已经在列表里的不重复加（合并上报会更新同一条编码）
+      var exist = ORDERS.filter(function (x) { return x.id === o.id; })[0];
+      if (exist) {
+        exist.severity = o.severity;
+        exist.status = o.status;
+        exist.reports = o.reports;
+        exist.estPoints = o.estPoints;
+        exist.reward = o.reward;
+      } else {
+        ORDERS.unshift(o);
+        added++;
+      }
+    });
+
+    // 状态可能被后台改过，同步回来（后台操作会写回编码表）
+    ORDERS.forEach(function (o) {
+      if (!o.live) return;
+      var t = fresh.filter(function (x) { return x.id === o.id; })[0];
+      if (t) { o.status = t.status; o.reward = t.reward; }
+    });
+
+    var n = ORDERS.length;
+    var el = $('#liveCount');
+    if (el) el.textContent = n + ' 条';
+
+    if (added) {
+      renderAll();
+      if (!quiet) toast('收到 ' + added + ' 条现场上报', 'ok');
+    }
+  }
+
+  function renderAll() {
+    renderMetrics();
+    renderTrend();
+    renderDonut();
+    renderRank();
+    renderHeat();
+    renderOrders();
+    renderMergeAdvice();
+  }
+
+  function setLive(on) {
+    LIVE.on = on;
+
+    $('#btnLive').classList.toggle('is-on', on);
+    $('#btnLiveText').textContent = on ? '现场模式 · 开' : '现场模式';
+    $('#liveBar').hidden = !on;
+
+    if (on) {
+      // 先清空：演示数据、拦截记录、以及所有缓存的分组
+      ORDERS.length = 0;
+      BLOCK_LOG.length = 0;
+      LIVE.seen = {};
+      state.expanded = {};
+
+      ORDERS.unshift.apply(ORDERS, liveOrders());
+      ORDERS.forEach(function (o) { LIVE.seen[o.id] = 1; });
+
+      $('#liveCount').textContent = ORDERS.length + ' 条';
+      renderAll();
+
+      // 每 2 秒看一次编码表，现场报的会自己冒出来
+      clearInterval(LIVE.timer);
+      LIVE.timer = setInterval(function () { syncLive(false); }, 2000);
+
+      toast('演示数据已清空，等待现场上报', 'ok');
+    } else {
+      clearInterval(LIVE.timer);
+      LIVE.timer = null;
+
+      ORDERS.length = 0;
+      ORDERS.unshift.apply(ORDERS, buildOrders());
+      // buildOrders 之后补上那条「同一人重复报」的记录
+      if (ORDERS[0]) {
+        ORDERS[0].reports.push({
+          by: '李', credit: 92, at: ORDERS[0].createdAt + 0.55 * HOUR, selfDup: true
+        });
+      }
+
+      BLOCK_LOG.length = 0;
+      BLOCK_LOG.push.apply(BLOCK_LOG, BLOCK_LOG_SEED);
+
+      renderAll();
+      toast('已恢复演示数据');
+    }
+
+    if (heatMap) setTimeout(function () { heatMap.resize(); }, 60);
+  }
+
+  /**
+   * 抽屉里的「积分结算」。
+   *
+   * 这一块存在的意义是让处理的人看见：自己点的这一下会往外发多少钱。
+   * 以前「完成」只是个状态变更，现在它同时是一次付款动作，
+   * 那就必须在点之前把金额、依据、发没发都摊开。
+   */
+  function paySection(o) {
+    var canPay = !!(window.Payout && (o.live || o.code));
+    var paid = !!(o.reward && o.reward.paid);
+
+    if (!canPay) {
+      return '<div class="dr-section">' +
+        '<div class="dr-section-title">积分结算</div>' +
+        '<div class="dr-note">这条是演示数据，没有真实上报人，办结时不产生积分。' +
+          '开「现场模式」用手机真报一条，就能看到从上报到到账的完整链路。</div>' +
+      '</div>';
+    }
+
+    var bd = window.Payout
+      ? Payout.breakdown({ severity: o.severity, type: o.type, kind: (o.reward && o.reward.kind) || o.kind })
+      : null;
+
+    var pts = paid ? o.reward.points
+      : (typeof o.estPoints === 'number' && o.estPoints ? o.estPoints : (bd ? bd.points : 0));
+
+    var t = D.type(o.type);
+
+    var how = bd
+      ? '<div>' + bd.severity + ' 星 · 基础 ' + bd.base + ' 分' + '</div>' +
+        '<div>' + escapeHtml(t.label) +
+          (bd.typeW !== 1 ? ' ×' + bd.typeW : '') +
+          ' · ' + escapeHtml(bd.kindText || '独立发现') +
+          (bd.kindW !== 1 ? ' ×' + bd.kindW : '') + '</div>'
+      : '';
+
+    return '<div class="dr-section">' +
+      '<div class="dr-section-title">积分结算</div>' +
+      '<div class="dr-pay">' +
+        '<div class="dr-pay-num"><b>' + pts + '</b><span>分</span></div>' +
+        '<div class="dr-pay-info">' + how + '</div>' +
+        '<span class="dr-pay-state' + (paid ? ' is-paid' : '') + '">' +
+          (paid ? '已到账' : '待发放') + '</span>' +
+      '</div>' +
+      '<div class="dr-note" style="margin-top:9px">' +
+        (paid
+          ? '积分已随办结转给上报人，工单时间线上有记录。'
+          : '点「办结并发分」才发。AI 放行只说明这张单能开，不代表现场真有东西可修——' +
+            '钱压在最后这一步，乱报的人在这里拿不到任何东西。') +
+      '</div>' +
+      (paid || o.status === 'resolved' ? '' :
+        '<button class="dr-pay-btn" data-pay="' + escapeHtml(o.orderNo) + '">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+            'style="vertical-align:-2px;margin-right:5px"><path d="M20 7L9.5 17.5 4 12"/></svg>' +
+          '办结并发分</button>') +
+    '</div>';
+  }
+
+  /** 抽屉里的「现场这一条」：照片 + 判定过程 */
+  function liveSection(o) {
+    var a = o.analysis || {};
+    var m = a.metrics || {};
+    var src = a.source === 'deepseek' ? 'DeepSeek 语义判定' : '本地规则引擎';
+
+    var LABEL = {
+      sharpness: '清晰度',
+      brightness: '亮度',
+      saturation: '饱和度',
+      flatRatio: '平坦区',
+      edgeDensity: '边缘密度'
+    };
+
+    var rows = Object.keys(LABEL).filter(function (k) {
+      return m[k] != null;
+    }).map(function (k) {
+      var v = m[k];
+      var show = typeof v === 'number' ? (v < 10 ? v.toFixed(3) : Math.round(v)) : v;
+      return '<div class="dr-metric"><span>' + LABEL[k] + '</span><b>' + show + '</b></div>';
+    }).join('');
+
+    return '<div class="dr-section">' +
+      '<div class="dr-section-title">现场原始记录</div>' +
+      (o.photo ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>' : '') +
+      (o.summary ? '<div class="dr-note" style="margin-top:10px">“' + escapeHtml(o.summary) + '”</div>' : '') +
+      '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
+        '<span class="dr-v">' + src +
+        (a.soft ? '（画质仅提示）' : '') + '</span></div>' +
+      (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
+      '<div class="dr-note" style="margin-top:8px">' +
+        (a.pass
+          ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，' +
+            '核实完点「办结并发分」。'
+          : '上报人选择的是「转人工」，所以这张单子没经过自动派单，' +
+            '等人工确认后再分给班组。') +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ======================================================================
    * 启动
    * ==================================================================== */
 
@@ -1330,6 +1648,9 @@
     });
 
     $('#btnExport').addEventListener('click', exportExcel);
+
+    $('#btnLive').addEventListener('click', function () { setLive(!LIVE.on); });
+    $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
 
     // 热力图筛选
     $$('#heatFilter .seg-btn').forEach(function (b) {

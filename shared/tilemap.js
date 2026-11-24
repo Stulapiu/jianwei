@@ -163,6 +163,7 @@
       height: 0,
       tiles: {},        // key: z/x/y → img 元素
       markers: [],
+      me: null,         // 我的位置（已转成 GCJ-02 的世界坐标）
       heat: [],
       failedTiles: 0,
       loadedTiles: 0,
@@ -178,6 +179,11 @@
     var layerMarks = document.createElement('div');
     layerMarks.className = 'tm-marks';
 
+    // 我的位置单独一层：它在所有问题点之下，也不参与聚合，
+    // 免得和一堆红点混在一起看不出哪是自己
+    var layerMe = document.createElement('div');
+    layerMe.className = 'tm-me-layer';
+
     var gridHint = document.createElement('div');
     gridHint.className = 'tm-grid';
     gridHint.style.display = 'none';
@@ -186,6 +192,7 @@
     container.appendChild(gridHint);
     container.appendChild(layerTiles);
     container.appendChild(layerHeat);
+    container.appendChild(layerMe);
     container.appendChild(layerMarks);
 
     var ctx = layerHeat.getContext('2d');
@@ -353,6 +360,45 @@
                       p.y > -pad && p.y < state.height + pad;
         m._el.style.visibility = visible ? 'visible' : 'hidden';
       });
+      placeMe();
+    }
+
+    /* -------- 我的位置 -------- */
+
+    var meEl = null;
+
+    function placeMe() {
+      if (!meEl || !state.me) return;
+      var p = toPixel(state.me[0], state.me[1]);
+      meEl.style.left = p.x + 'px';
+      meEl.style.top = p.y + 'px';
+      var pad = 120;
+      var on = p.x > -pad && p.x < state.width + pad &&
+               p.y > -pad && p.y < state.height + pad;
+      meEl.style.visibility = on ? 'visible' : 'hidden';
+    }
+
+    /**
+     * 画"我在哪"。
+     * 传 null 就收起。传 {spread:true} 表示这是一个模糊过的位置，
+     * 光圈会开得更大，让"我知道你大概在这一带"这件事在视觉上说得通。
+     */
+    function setMe(lng, lat, opts) {
+      if (lng == null || lat == null) {
+        if (meEl) { meEl.parentNode.removeChild(meEl); meEl = null; }
+        state.me = null;
+        return api;
+      }
+      if (!meEl) {
+        meEl = document.createElement('div');
+        meEl.className = 'tm-me';
+        meEl.innerHTML = '<i class="tm-me-ring"></i><i class="tm-me-dot"></i>';
+        layerMe.appendChild(meEl);
+      }
+      meEl.classList.toggle('is-spread', !!(opts && opts.spread));
+      state.me = wgs2gcj(lng, lat);
+      placeMe();
+      return api;
     }
 
     /* -------- 热力 -------- */
@@ -564,6 +610,7 @@
       },
       render: render,
       setMarkers: setMarkers,
+      setMe: setMe,
       setHeat: setHeat,
       /**
        * 运行期换底图（标准 / 卫星 / 路网）。

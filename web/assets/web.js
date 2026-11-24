@@ -475,6 +475,14 @@
     const dept = Domain.deptFor(state.type);
     const s = A.get();
 
+    // 积分：提交时就把这一单值多少算好存进工单，办结时按这个数发。
+    // 不等办结再算——规则调价不该回头改已经报上去的单子，
+    // 否则用户看到的「预计 +65」和到账数字会对不上。
+    const kind = merge.merged ? (merge.kind === 'crowd' ? 'crowd' : 'self') : 'solo';
+    const estPoints = window.Payout
+      ? Payout.estimate({ severity: severity, type: state.type, kind: kind })
+      : 0;
+
     const ticket = A.registerTicket({
       type: state.type,
       addr: state.addr,
@@ -484,11 +492,18 @@
       severity: severity,
       merged: !!merge.merged,
       reporters: merge.reporters || 1,
+      kind: kind,
+      estPoints: estPoints,
       ownerId: s ? s.id : A.deviceId(),
       ownerKind: s ? s.kind : 'guest'
     });
 
-    const reward = A.rewardValid({ merged: !!merge.merged, crowd: merge.kind === 'crowd' });
+    // 这一步只结信用与权重，积分要等后勤办结（见 payout.js）
+    const reward = A.rewardValid({
+      merged: !!merge.merged,
+      crowd: merge.kind === 'crowd',
+      estPoints: estPoints
+    });
     state.tickets.unshift({
       code: ticket.code,
       type: state.type,
@@ -497,6 +512,7 @@
       at: Date.now(),
       photo: state.photo,
       severity: severity,
+      estPoints: estPoints,
       dept: dept.name
     });
 
@@ -549,6 +565,13 @@
     const dept = Domain.deptFor(state.type);
     const pri = Domain.priorityOf(severity);
 
+    // 把「为什么是这么多分」拆开讲，别只甩一个数字
+    const kind = merge.merged ? (merge.kind === 'crowd' ? 'crowd' : 'self') : 'solo';
+    const bd = window.Payout
+      ? Payout.breakdown({ severity: severity, type: state.type, kind: kind })
+      : null;
+    const pts = reward && reward.estPoints ? reward.estPoints : (bd ? bd.points : 0);
+
     showResult(
       '<div class="result-hero">' +
         '<div class="tick"><svg viewBox="0 0 32 32"><path d="M8 16.6l5.4 5.4L24 11.2"/></svg></div>' +
@@ -583,7 +606,15 @@
           '<div class="card-t">这次结算</div>' +
           '<div class="chips">' +
             '<span class="chip-ok">信用 +' + reward.creditGain + '</span>' +
-            '<span class="chip-pt">积分 +' + reward.pointGain + '</span>' +
+            '<span class="chip-pt">待发放 +' + pts + ' 积分</span>' +
+          '</div>' +
+          '<div class="ctx-note">' +
+            '<b>积分不在这里发。</b>要等后勤到场核实、并且真的处理完成之后才到账 —— ' +
+            'AI 认了只代表这张单可以开，不代表现场真有东西可修。' +
+            (bd ? '<br>本单：' + bd.severity + ' 星 ' + bd.base + ' 分' +
+              (bd.typeW !== 1 ? ' × ' + bd.typeW : '') +
+              (bd.kindW !== 1 ? ' × ' + bd.kindW + '（' + bd.kindText + '）' : '') +
+              '，合计 <b>' + bd.points + '</b> 分。' : '') +
           '</div>' +
           '<div class="ctx-note">' +
             (merge.merged
@@ -665,15 +696,20 @@
     $('#resForce').addEventListener('click', function () {
       const s = A.get();
       const dept = Domain.deptFor(state.type);
+      const sev = v.severity || 2;
+      const estPts = window.Payout
+        ? Payout.estimate({ severity: sev, type: state.type, kind: 'review' })
+        : 0;
       const tk = A.registerTicket({
         type: state.type, addr: state.addr, lng: state.lng, lat: state.lat,
-        dept: dept.name, severity: v.severity || 2, merged: false, reporters: 1,
+        dept: dept.name, severity: sev, merged: false, reporters: 1,
+        kind: 'review', estPoints: estPts,
         ownerId: s ? s.id : A.deviceId(), ownerKind: s ? s.kind : 'guest'
       });
       A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
       state.tickets.unshift({
         code: tk.code, type: state.type, addr: state.addr, status: 'review',
-        at: Date.now(), photo: state.photo, severity: v.severity || 2, dept: dept.name
+        at: Date.now(), photo: state.photo, severity: sev, estPoints: estPts, dept: dept.name
       });
       toast('已转人工复核 · ' + tk.code, 'ok');
       go('tickets');
@@ -791,6 +827,19 @@
     }
 
     const st = STATUS_UI[t.status] || STATUS_UI.pending;
+
+    // 积分状态：到账了说已到账，没到就说清楚卡在"等后勤到场"这一步
+    const paid = !!(t.reward && t.reward.paid);
+    const estPts = paid ? t.reward.points
+      : (typeof t.estPoints === 'number' ? t.estPoints
+        : (window.Payout ? Payout.estimate(t) : 0));
+    const payLine = estPts
+      ? (paid
+          ? '<b style="color:var(--ok)">+' + estPts + ' 已到账</b>'
+          : '<b style="color:var(--warn)">待发放 +' + estPts + '</b>' +
+            '<span style="color:var(--text-3)"> · 后勤到场核实并处理完成后到账</span>')
+      : '—';
+
     box.innerHTML =
       '<div class="card qr">' +
         '<div class="qr-hd">' +
@@ -805,6 +854,7 @@
           '<dt>负责部门</dt><dd>' + UI.escapeHtml(t.dept || '待分派') + '</dd>' +
           '<dt>紧急度</dt><dd>' + stars(t.severity || 1) + '</dd>' +
           '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+          '<dt>积分</dt><dd>' + payLine + '</dd>' +
         '</dl>' +
         '<div class="tl">' +
           (t.timeline || []).map(function (e, i) {

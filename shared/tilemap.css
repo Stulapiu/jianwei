@@ -161,3 +161,62 @@
   100% { transform: scale(1.9); opacity: 0; }
 }
 .tm-dot.is-plain::after { display: none; }
+
+/* ============================================================
+   我的位置
+   ------------------------------------------------------------
+   一个蓝点 + 一圈扩散。它和问题点的红色是两套语言：
+   红色是"这里有事"，蓝色是"我在这里"。
+   ============================================================ */
+.tm-me-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.tm-me {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.tm-me-ring {
+  position: absolute;
+  left: -20px;
+  top: -20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(30, 123, 214, .26);
+  animation: tmMePulse 2.6s ease-out infinite;
+}
+.tm-me-dot {
+  position: absolute;
+  left: -6.5px;
+  top: -6.5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #1E7BD6;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(30, 123, 214, .55);
+}
+/* 位置被模糊过时，光圈开大一圈，表示"大概在这一带" */
+.tm-me.is-spread .tm-me-ring {
+  left: -34px;
+  top: -34px;
+  width: 68px;
+  height: 68px;
+  background: rgba(30, 123, 214, .14);
+}
+.tm-me.is-spread .tm-me-dot {
+  background: rgba(30, 123, 214, .55);
+  border-color: rgba(255, 255, 255, .9);
+}
+@keyframes tmMePulse {
+  0%   { transform: scale(.5); opacity: .85; }
+  70%  { transform: scale(1.55); opacity: 0; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-me-ring { animation: none; opacity: .5; }
+}

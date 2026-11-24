@@ -171,6 +171,65 @@
 }
 .tm-dot.is-plain::after { display: none; }
 
+/* ============================================================
+   我的位置
+   ------------------------------------------------------------
+   一个蓝点 + 一圈扩散。它和问题点的红色是两套语言：
+   红色是"这里有事"，蓝色是"我在这里"。
+   ============================================================ */
+.tm-me-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.tm-me {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.tm-me-ring {
+  position: absolute;
+  left: -20px;
+  top: -20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(30, 123, 214, .26);
+  animation: tmMePulse 2.6s ease-out infinite;
+}
+.tm-me-dot {
+  position: absolute;
+  left: -6.5px;
+  top: -6.5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #1E7BD6;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(30, 123, 214, .55);
+}
+/* 位置被模糊过时，光圈开大一圈，表示"大概在这一带" */
+.tm-me.is-spread .tm-me-ring {
+  left: -34px;
+  top: -34px;
+  width: 68px;
+  height: 68px;
+  background: rgba(30, 123, 214, .14);
+}
+.tm-me.is-spread .tm-me-dot {
+  background: rgba(30, 123, 214, .55);
+  border-color: rgba(255, 255, 255, .9);
+}
+@keyframes tmMePulse {
+  0%   { transform: scale(.5); opacity: .85; }
+  70%  { transform: scale(1.55); opacity: 0; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-me-ring { animation: none; opacity: .5; }
+}
+
 </style>
 <style data-from="assets/web.css">
 /* ==========================================================================
@@ -1272,7 +1331,7 @@ textarea::placeholder { color: #B6C2C0; }
 }
 
 </style>
-<!-- 单文件构建 · 2026-11-24 06:18:42 · CSS×2 JS×7 -->
+<!-- 单文件构建 · 2026-11-24 07:14:56 · CSS×2 JS×8 -->
 </head>
 <body>
 
@@ -1522,7 +1581,7 @@ textarea::placeholder { color: #B6C2C0; }
           <div class="card metric">
             <div class="card-s">积分</div>
             <div class="metric-v num" id="mePoints">0</div>
-            <div class="card-s">有效 +10 · 解决 +30 · 乱报 −20</div>
+            <div class="card-s">后勤办结 +20~90 · 乱报 −20</div>
           </div>
 
           <div class="card metric">
@@ -1776,6 +1835,7 @@ textarea::placeholder { color: #B6C2C0; }
       height: 0,
       tiles: {},        // key: z/x/y → img 元素
       markers: [],
+      me: null,         // 我的位置（已转成 GCJ-02 的世界坐标）
       heat: [],
       failedTiles: 0,
       loadedTiles: 0,
@@ -1791,6 +1851,11 @@ textarea::placeholder { color: #B6C2C0; }
     var layerMarks = document.createElement('div');
     layerMarks.className = 'tm-marks';
 
+    // 我的位置单独一层：它在所有问题点之下，也不参与聚合，
+    // 免得和一堆红点混在一起看不出哪是自己
+    var layerMe = document.createElement('div');
+    layerMe.className = 'tm-me-layer';
+
     var gridHint = document.createElement('div');
     gridHint.className = 'tm-grid';
     gridHint.style.display = 'none';
@@ -1799,6 +1864,7 @@ textarea::placeholder { color: #B6C2C0; }
     container.appendChild(gridHint);
     container.appendChild(layerTiles);
     container.appendChild(layerHeat);
+    container.appendChild(layerMe);
     container.appendChild(layerMarks);
 
     var ctx = layerHeat.getContext('2d');
@@ -1966,6 +2032,45 @@ textarea::placeholder { color: #B6C2C0; }
                       p.y > -pad && p.y < state.height + pad;
         m._el.style.visibility = visible ? 'visible' : 'hidden';
       });
+      placeMe();
+    }
+
+    /* -------- 我的位置 -------- */
+
+    var meEl = null;
+
+    function placeMe() {
+      if (!meEl || !state.me) return;
+      var p = toPixel(state.me[0], state.me[1]);
+      meEl.style.left = p.x + 'px';
+      meEl.style.top = p.y + 'px';
+      var pad = 120;
+      var on = p.x > -pad && p.x < state.width + pad &&
+               p.y > -pad && p.y < state.height + pad;
+      meEl.style.visibility = on ? 'visible' : 'hidden';
+    }
+
+    /**
+     * 画"我在哪"。
+     * 传 null 就收起。传 {spread:true} 表示这是一个模糊过的位置，
+     * 光圈会开得更大，让"我知道你大概在这一带"这件事在视觉上说得通。
+     */
+    function setMe(lng, lat, opts) {
+      if (lng == null || lat == null) {
+        if (meEl) { meEl.parentNode.removeChild(meEl); meEl = null; }
+        state.me = null;
+        return api;
+      }
+      if (!meEl) {
+        meEl = document.createElement('div');
+        meEl.className = 'tm-me';
+        meEl.innerHTML = '<i class="tm-me-ring"></i><i class="tm-me-dot"></i>';
+        layerMe.appendChild(meEl);
+      }
+      meEl.classList.toggle('is-spread', !!(opts && opts.spread));
+      state.me = wgs2gcj(lng, lat);
+      placeMe();
+      return api;
     }
 
     /* -------- 热力 -------- */
@@ -2177,6 +2282,7 @@ textarea::placeholder { color: #B6C2C0; }
       },
       render: render,
       setMarkers: setMarkers,
+      setMe: setMe,
       setHeat: setHeat,
       /**
        * 运行期换底图（标准 / 卫星 / 路网）。
@@ -2447,6 +2553,260 @@ textarea::placeholder { color: #B6C2C0; }
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
+<script data-from="../shared/payout.js">
+/* ==========================================================================
+ * 见微 · 积分结算
+ * --------------------------------------------------------------------------
+ * 一条规则贯穿全系统：**积分不是 AI 发的，是后勤发的。**
+ *
+ * 为什么要把这两件事拆开：
+ *
+ *   AI 判"有效"只是把工单放进派单池，它证明的是"这张照片像那么回事"，
+ *   不证明"这里真的有一盏坏灯"。如果 AI 一放行就到账，那这套积分
+ *   奖励的其实是"会拍照的人"，而不是"帮上忙的人"——刷单也就有了动机：
+ *   找一面脏墙、换个角度拍十次，照样拿分。
+ *
+ *   所以钱要压在最后一环：后勤到场、核实、处理完，才结算。
+ *   到这一步，乱报的人拿不到任何东西，因为他报的地方根本没东西可修；
+ *   真发现问题的人，拿到的分也才对得起他跑的那一趟。
+ *
+ * 分档也很重要。「垃圾桶满了」和「井盖没了」不该同一个价。
+ * 分由三样东西乘出来：
+ *
+ *   紧急度  1–5 星  →  20 / 30 / 45 / 65 / 90   基础分，越急越贵
+ *   问题类型        →  安全 ×1.2，路面 ×1.1，积水 ×1.05，其余 ×1
+ *   上报方式        →  独立发现 ×1，帮别人确认 ×0.6，同一处重复 ×0.4
+ *
+ * 结果取整到 5 的倍数——界面上写「预计 +65」比「预计 +63.7」可信得多。
+ *
+ * 这个文件同时被用户端和管理后台引用。后台没有引 auth.js（那一套带着
+ * 登录闸门，后台用不上），所以这里只按约定的键名直接读写 localStorage，
+ * 不依赖任何上游模块。
+ * ========================================================================== */
+
+window.Payout = (function () {
+  'use strict';
+
+  var AUTH_KEY = 'jw.auth.v2';
+  var PROF_KEY = 'jw.auth.v2.profiles';
+  var CODE_KEY = 'jw.codes.v2';
+
+  /* ---------------- 分档表 ---------------- */
+
+  var BASE = { 1: 20, 2: 30, 3: 45, 4: 65, 5: 90 };
+
+  var TYPE_W = {
+    safety: 1.2,      // 安全隐患：可能伤到人，最贵
+    road: 1.1,        // 路面破损：影响通行，次之
+    water: 1.05,      // 积水漏水：会扩散，越早越省事
+    facility: 1.05,   // 设施损坏：个人修不了，等专业班组
+    network: 1.05,    // 网络通信：影响面大，一坏一片
+    lighting: 1,
+    sanitation: 1,
+    traffic: 1,
+    green: 0.95,      // 绿化：好看但不挡路，分最低
+    other: 1
+  };
+
+  var KIND_W = {
+    solo: 1,          // 独立发现
+    crowd: 0.6,       // 帮别人确认了同一处：少跑一趟，但确实有人证
+    self: 0.4,        // 同一处重复报：不鼓励，但也不至于白报
+    review: 0.75      // AI 没过、自己转人工，最后核实为真
+  };
+
+  var KIND_TEXT = {
+    solo: '独立发现',
+    crowd: '帮别人确认了同一处',
+    self: '同一处重复上报',
+    review: '转人工复核后核实为真'
+  };
+
+  /* ---------------- 存储 ---------------- */
+
+  function read(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  function write(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch (e) { return false; }
+  }
+
+  /* ---------------- 算分 ---------------- */
+
+  function clampSev(n) {
+    var s = Math.round(Number(n) || 1);
+    return Math.max(1, Math.min(5, s));
+  }
+
+  /** 上报方式：没显式传就按「有没有并单」推断 */
+  function kindOf(o) {
+    if (o.kind && KIND_W[o.kind] != null) return o.kind;
+    if (o.status === 'review') return 'review';
+    return o.merged ? 'crowd' : 'solo';
+  }
+
+  /**
+   * 算一条上报值多少分。
+   * @param {object} o  { severity, type, kind, merged, status }
+   * @return {number}   5 的倍数
+   */
+  function estimate(o) {
+    o = o || {};
+    var sev = clampSev(o.severity);
+    var tw = TYPE_W[o.type] != null ? TYPE_W[o.type] : 1;
+    var kw = KIND_W[kindOf(o)] != null ? KIND_W[kindOf(o)] : 1;
+    var pts = Math.round(BASE[sev] * tw * kw / 5) * 5;
+    return Math.max(5, pts);
+  }
+
+  /** 给界面拆着讲：为什么是这么多分 */
+  function breakdown(o) {
+    o = o || {};
+    var sev = clampSev(o.severity);
+    var k = kindOf(o);
+    return {
+      severity: sev,
+      base: BASE[sev],
+      type: o.type || 'other',
+      typeW: TYPE_W[o.type] != null ? TYPE_W[o.type] : 1,
+      kind: k,
+      kindText: KIND_TEXT[k] || '',
+      kindW: KIND_W[k] != null ? KIND_W[k] : 1,
+      points: estimate(o)
+    };
+  }
+
+  /** 档位表，用户端说明页直接照着渲染 */
+  function ladder() {
+    return [1, 2, 3, 4, 5].map(function (s) {
+      return { severity: s, points: BASE[s] };
+    });
+  }
+
+  function kindText(k) { return KIND_TEXT[k] || ''; }
+
+  /* ---------------- 结算 ---------------- */
+
+  function profileKey(kind, id) { return kind + ':' + id; }
+
+  /**
+   * 后勤办结后调用：给上报人加分，并把工单标成 resolved。
+   *
+   * 幂等——同一张工单点两次「完成」不会发两次钱，
+   * 这点在演示时特别重要：台下有人会让你多点两下。
+   *
+   * @param {string} code  查询编码
+   * @param {object} opts  { at: 时间戳, note: 覆盖时间线文案 }
+   * @return {object} { ok, points, already, code, msg }
+   */
+  function settle(code, opts) {
+    opts = opts || {};
+
+    var codes = read(CODE_KEY, {}) || {};
+    var key = String(code || '').trim().toUpperCase();
+    var t = codes[key];
+
+    if (!t) return { ok: false, code: key, msg: '没有这张工单' };
+
+    if (t.reward && t.reward.paid) {
+      return { ok: false, already: true, code: key, points: t.reward.points, msg: '这张工单的积分已经发过了' };
+    }
+
+    var now = opts.at || Date.now();
+    var kind = kindOf(t);
+    // 提交时算过的那个数就是承诺给用户的数，办结时必须发同样的数。
+    // 只有老数据（没有 estPoints）才现算，避免规则改过之后前后不一致。
+    var pts = typeof t.estPoints === 'number'
+      ? t.estPoints
+      : estimate({ severity: t.severity, type: t.type, kind: kind, merged: t.merged, status: t.status });
+
+    // ---- 加分给上报人 ----
+    var profs = read(PROF_KEY, {}) || {};
+    var pk = profileKey(t.ownerKind || 'guest', t.ownerId || '');
+    var prof = profs[pk];
+
+    if (prof) {
+      prof.points = (prof.points || 0) + pts;
+      prof.resolvedCnt = (prof.resolvedCnt || 0) + 1;
+      prof.at = now;
+      profs[pk] = prof;
+      write(PROF_KEY, profs);
+    }
+
+    // 当前这台设备正好是本人时，顺手把会话里那份也改了，
+    // 否则用户得刷新一次才看见积分涨了——演示时这一步很掉分。
+    var sess = read(AUTH_KEY, null);
+    if (sess && sess.id === t.ownerId && sess.kind === (t.ownerKind || 'guest')) {
+      sess.points = (sess.points || 0) + pts;
+      sess.resolvedCnt = (sess.resolvedCnt || 0) + 1;
+      write(AUTH_KEY, sess);
+    }
+
+    // ---- 工单本身 ----
+    t.status = 'resolved';
+    t.reward = {
+      points: pts,
+      at: now,
+      paid: true,
+      kind: kind,
+      kindText: KIND_TEXT[kind]
+    };
+    t.timeline = t.timeline || [];
+    t.timeline.push({
+      at: now,
+      label: opts.note || ('后勤已到场核实并处理完成 · ' + pts + ' 积分已到账'),
+      tone: 'ok'
+    });
+
+    codes[key] = t;
+    write(CODE_KEY, codes);
+
+    return { ok: true, code: key, points: pts, kind: kind, answered: !!prof };
+  }
+
+  /**
+   * 批量结算一组工单，返回总发放额。
+   * 后台「合并工单」那种一次动几条的场景用它。
+   */
+  function settleMany(list, opts) {
+    var total = 0, n = 0;
+    (list || []).forEach(function (c) {
+      var r = settle(c, opts);
+      if (r.ok) { total += r.points; n++; }
+    });
+    return { count: n, points: total };
+  }
+
+  /** 只读查询：这张单子的积分发没发 */
+  function statusOf(code) {
+    var codes = read(CODE_KEY, {}) || {};
+    var t = codes[String(code || '').trim().toUpperCase()];
+    if (!t) return null;
+    return {
+      reward: t.reward || null,
+      pending: t.reward ? 0 : (typeof t.estPoints === 'number' ? t.estPoints : estimate(t)),
+      status: t.status
+    };
+  }
+
+  return {
+    BASE: BASE,
+    estimate: estimate,
+    breakdown: breakdown,
+    ladder: ladder,
+    kindText: kindText,
+    settle: settle,
+    settleMany: settleMany,
+    statusOf: statusOf
+  };
+})();
+
+</script>
 <script data-from="../shared/auth.js">
 /* ==========================================================================
  * 见微 · 身份与激励
@@ -2457,7 +2817,8 @@ textarea::placeholder { color: #B6C2C0; }
  * （刷单、报复性乱报）。这个模块用三层数字把它们分开：
  *
  *   信用分 credit  0–100   资格。低于 60 的提交一律进人工复核。
- *   积分   points  只增     收益。有效上报 +10，问题被解决 +30，乱报 −20。
+ *   积分   points  只增     收益。**不在这里发**——后勤到场核实并处理完，
+ *                           由 payout.js 按问题程度结算（20–90 分）；乱报 −20。
  *   权重   weight  0.3–1.5  投票权。乱报会衰减；权重低的账号不给别人的工单"抬票"。
  *
  * 三者互不替代：信用分低但积分高的人可以继续报（只是要人看一眼），
@@ -2597,6 +2958,25 @@ window.Auth = (function () {
   /** 页面刷新后恢复；没有会话返回 null */
   function get() { return session; }
 
+  /**
+   * 从存储里重读当前档案。
+   *
+   * 后台办结工单时会直接往 profiles 里加积分（见 payout.js），
+   * 但用户端内存里那份 session 还是旧的。切到「我的」或「积分乐园」
+   * 时调一次，积分当场就涨了 —— 不用让人按刷新。
+   */
+  function refresh() {
+    if (!session) return null;
+    const store = read(KEY + '.profiles', {}) || {};
+    const fresh = store[profileKey(session.kind, session.id)];
+    if (fresh) {
+      session = fresh;
+      write(KEY, session);
+      emit();
+    }
+    return session;
+  }
+
   function isGuest() { return !session || session.kind === 'guest'; }
 
   function relabel(name) {
@@ -2637,7 +3017,13 @@ window.Auth = (function () {
   }
 
   /**
-   * 一次有效上报的结算。
+   * 一次有效上报的结算 —— 只结信用与权重，**不发积分**。
+   *
+   * 积分为什么要留到后面：AI 说"通过"只代表这张照片像回事，不代表现场
+   * 真的有东西可修。当场发钱等于奖励"会拍照"，也给刷单留了口子。
+   * 真正结算在后勤办结那一步（见 payout.js），这里只把预估分
+   * 算出来带回去，让用户当场知道"这单值多少、什么时候到"。
+   *
    * @param {boolean} merged    是否并入了已有工单
    * @param {boolean} crowd     是否属于"多人报同一处"
    */
@@ -2650,22 +3036,26 @@ window.Auth = (function () {
     const creditGain = o.merged ? 1 : 2;
     session.credit = Math.min(100, session.credit + creditGain);
 
-    // 积分：独立分 +10；顺手帮别人合并算半份，避免刷单
-    const pointGain = o.merged ? 5 : 10;
-    session.points = (session.points || 0) + pointGain;
+    // 积分：这次一个子儿都不发，只把预估额带出去
+    const estPoints = o.estPoints != null ? o.estPoints : 0;
 
     // 权重缓慢回血，但不会因为一次有效上报就洗白
     session.weight = Math.min(1.5, (session.weight || 1) + 0.02);
 
     persist();
-    return { creditGain: creditGain, pointGain: pointGain };
+    return { creditGain: creditGain, pointGain: 0, estPoints: estPoints, deferred: true };
   }
 
-  /** 问题被确认解决后的追加结算 */
-  function rewardResolved() {
+  /**
+   * 问题被确认解决后的追加结算。
+   * 保留它是为了兼容早期的调用方；新的结算一律走 Payout.settle，
+   * 那边会按问题程度算分、写回工单时间线，也保证不会重复发。
+   */
+  function rewardResolved(points) {
     if (!session) return;
+    const pts = typeof points === 'number' ? points : 30;
     session.resolvedCnt = (session.resolvedCnt || 0) + 1;
-    session.points = (session.points || 0) + 30;
+    session.points = (session.points || 0) + pts;
     session.credit = Math.min(100, session.credit + 3);
     persist();
   }
@@ -2733,8 +3123,17 @@ window.Auth = (function () {
       severity: t.severity,
       merged: !!t.merged,
       reporters: t.reporters || 1,
+      // 奖励方式与预估积分：提交那一刻就定死，办结时按这个数发，
+      // 不能等办结再算——规则改过了、或者后台改过紧急度，都会让
+      // 用户看到的「预计 +65」和实际到账对不上。
+      kind: t.kind || (t.merged ? 'crowd' : 'solo'),
+      estPoints: typeof t.estPoints === 'number' ? t.estPoints : 0,
       ownerId: t.ownerId,
       ownerKind: t.ownerKind,
+      // 下面三项是给后台"现场模式"看的：现场长什么样、说了什么、AI 怎么判的
+      photo: t.photo || null,
+      desc: t.desc || '',
+      analysis: t.analysis || null,
       at: Date.now(),
       timeline: [{ at: Date.now(), label: '已提交，进入待派单池', tone: 'ok' }]
     };
@@ -2764,6 +3163,19 @@ window.Auth = (function () {
       .sort(function (a, b) { return b.at - a.at; });
   }
 
+  /**
+   * 全部工单，不分谁报的。
+   * 后台"现场模式"靠它把现场真报上来的单子接进看板 ——
+   * 三个端同源（同一个 github.io 域名），localStorage 是通的，
+   * 所以手机上报一条，投屏上的后台几秒后就能看见。
+   */
+  function allTickets() {
+    const codes = loadCodes();
+    return Object.keys(codes)
+      .map(function (k) { return codes[k]; })
+      .sort(function (a, b) { return b.at - a.at; });
+  }
+
   function advanceTicket(code, status, label) {
     const codes = loadCodes();
     const c = normalizeCode(code);
@@ -2785,6 +3197,8 @@ window.Auth = (function () {
       severity: 3,
       merged: true,
       reporters: 4,
+      kind: 'crowd',
+      estPoints: 25,                   // 3 星 45 分 × 并单 0.6 ≈ 25，还没办结
       at: Date.now() - 26 * 3600 * 1000,
       demo: true,
       timeline: [
@@ -2803,13 +3217,16 @@ window.Auth = (function () {
       severity: 4,
       merged: false,
       reporters: 1,
+      kind: 'solo',
+      estPoints: 70,
+      reward: { points: 70, paid: true, kind: 'solo', kindText: '独立发现', at: Date.now() - 2 * 24 * 3600 * 1000 },
       at: Date.now() - 3 * 24 * 3600 * 1000,
       demo: true,
       timeline: [
         { at: Date.now() - 3 * 24 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
         { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
         { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口，回填塌陷' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，感谢你的上报', tone: 'ok' }
+        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，70 积分已到账', tone: 'ok' }
       ]
     }
   };
@@ -2818,6 +3235,7 @@ window.Auth = (function () {
 
   return {
     get: get,
+    refresh: refresh,
     login: login,
     loginGuest: loginGuest,
     logout: logout,
@@ -2844,6 +3262,7 @@ window.Auth = (function () {
     registerTicket: registerTicket,
     findTicket: findTicket,
     myTickets: myTickets,
+    allTickets: allTickets,
     advanceTicket: advanceTicket,
     normalizeCode: normalizeCode
   };
@@ -3937,6 +4356,48 @@ window.Auth = (function () {
     users: '<circle cx="9.2" cy="8.6" r="3.2" ' + P + '/><path d="M3.2 19.6c0-3.2 2.7-5.4 6-5.4s6 2.2 6 5.4" ' + P + '/><path d="M15.8 5.6a3.2 3.2 0 0 1 0 6.2M17.4 14.4c2 .6 3.4 2.2 3.4 4.4" ' + P + '/>',
     broom: '<path d="M14.6 4.4l5 5M16.4 9.2 11 14.6" ' + P + '/><path d="M11 14.6l-4.2 4.2c-1.4 1.4-3.4 1.6-4 .6-.6-.6-.4-2.6 1-4L8 11.2l3 3.4Z" ' + P + '/><path d="M6.4 15.4 8 17" ' + P + '/>',
     zap: '<path d="M13.4 2.8 5.4 13.4h5.4l-1.2 7.8 8-10.6h-5.4l1.2-7.8Z" ' + P + '/>',
+
+    /* --- 问题类型图标 ---
+       这 8 个原来只在 domain.js 里写了名字、ui.js 里没有实现，
+       于是类型选择那一排只剩文字没有图标。补齐。 */
+    bulb: '<path d="M9.6 17.2h4.8M10.4 20h3.2" ' + P + '/>' +
+          '<path d="M12 3.6a5.6 5.6 0 0 1 3.4 10.1c-.6.4-1 1.1-1 1.9h-4.8c0-.8-.4-1.5-1-1.9A5.6 5.6 0 0 1 12 3.6Z" ' + P + '/>',
+    road: '<path d="M7 20.6 9.4 3.4M17 20.6 14.6 3.4" ' + P + '/>' +
+          '<path d="M12 5.6v2.6M12 11.4v2.6M12 17.2v2.6" ' + P + '/>',
+    drop: '<path d="M12 3.2c3.1 3.9 5.8 6.8 5.8 9.9a5.8 5.8 0 1 1-11.6 0c0-3.1 2.7-6 5.8-9.9Z" ' + P + '/>',
+    wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" ' + P + '/>',
+    trash: '<path d="M4.6 7.2h14.8M9.4 7.2V5.1A1.5 1.5 0 0 1 10.9 3.6h2.2a1.5 1.5 0 0 1 1.5 1.5v2.1" ' + P + '/>' +
+           '<path d="M6.4 7.2l.86 11.5A2 2 0 0 0 9.25 20.6h5.5a2 2 0 0 0 2-1.9l.85-11.5" ' + P + '/>' +
+           '<path d="M10.4 11v5.4M13.6 11v5.4" ' + P + '/>',
+    leaf: '<path d="M11 20.4A7 7 0 0 1 9.8 6.4C15.5 5.3 17 4.7 19 2.2c1 2 2 4.2 2 8 0 5.5-4.8 10.2-10 10.2Z" ' + P + '/>' +
+          '<path d="M2.2 21.4c0-3 1.9-5.4 5.1-6 3.4-.6 5.9-2.1 6.9-3.1" ' + P + '/>',
+    car: '<path d="M18.6 17.4h1.9a1 1 0 0 0 1-1v-3.1c0-.9-.7-1.7-1.5-1.9-1.8-.6-4.5-1.2-4.5-1.2s-1.3-1.4-2.2-2.3a2.5 2.5 0 0 0-1.8-.8H5.3c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2.4 13v3.4a1 1 0 0 0 1 1h1.9" ' + P + '/>' +
+         '<circle cx="7.2" cy="17.4" r="1.9" ' + P + '/><path d="M9.1 17.4h5.6" ' + P + '/><circle cx="16.7" cy="17.4" r="1.9" ' + P + '/>',
+    dots: '<circle cx="5.4" cy="12" r="1.35" fill="currentColor"/>' +
+          '<circle cx="12" cy="12" r="1.35" fill="currentColor"/>' +
+          '<circle cx="18.6" cy="12" r="1.35" fill="currentColor"/>',
+
+    /* --- 积分乐园 --- */
+    gift: '<rect x="3.4" y="8.6" width="17.2" height="4.2" rx="1.2" ' + P + '/>' +
+          '<path d="M5 12.8v6.4a1.4 1.4 0 0 0 1.4 1.4h11.2a1.4 1.4 0 0 0 1.4-1.4v-6.4M12 8.6v12" ' + P + '/>' +
+          '<path d="M12 8.6S10.6 3.4 8.4 3.4a2.2 2.2 0 0 0 0 5.2M12 8.6s1.4-5.2 3.6-5.2a2.2 2.2 0 0 1 0 5.2" ' + P + '/>',
+    dice: '<rect x="3.6" y="3.6" width="16.8" height="16.8" rx="3.4" ' + P + '/>' +
+          '<circle cx="8.4" cy="8.4" r="1.25" fill="currentColor"/>' +
+          '<circle cx="15.6" cy="8.4" r="1.25" fill="currentColor"/>' +
+          '<circle cx="12" cy="12" r="1.25" fill="currentColor"/>' +
+          '<circle cx="8.4" cy="15.6" r="1.25" fill="currentColor"/>' +
+          '<circle cx="15.6" cy="15.6" r="1.25" fill="currentColor"/>',
+    paw: '<ellipse cx="7.4" cy="8.6" rx="1.9" ry="2.4" ' + P + '/>' +
+         '<ellipse cx="16.6" cy="8.6" rx="1.9" ry="2.4" ' + P + '/>' +
+         '<ellipse cx="4.2" cy="13.6" rx="1.7" ry="2" ' + P + '/>' +
+         '<ellipse cx="19.8" cy="13.6" rx="1.7" ry="2" ' + P + '/>' +
+         '<path d="M12 12.2c2.6 0 4.8 2.2 4.8 4.6 0 2-1.6 3.4-3.6 3.4-.8 0-1.2-.3-1.2-.3s-.4.3-1.2.3c-2 0-3.6-1.4-3.6-3.4 0-2.4 2.2-4.6 4.8-4.6Z" ' + P + '/>',
+    crown: '<path d="M3.2 8.2 7 11.6l5-6.4 5 6.4 3.8-3.4-1.6 10.4H4.8L3.2 8.2Z" ' + P + '/>',
+    frame: '<rect x="3.6" y="3.6" width="16.8" height="16.8" rx="4" ' + P + '/>' +
+           '<circle cx="12" cy="10.2" r="2.6" ' + P + '/>' +
+           '<path d="M6.6 19.2c.8-2.6 2.9-4.2 5.4-4.2s4.6 1.6 5.4 4.2" ' + P + '/>',
+    coin: '<circle cx="12" cy="12" r="8.4" ' + P + '/><path d="M12 7.4v9.2M9.4 9.6h3.8a1.9 1.9 0 0 1 0 3.8H9.4" ' + P + '/>',
+    heart: '<path d="M12 20.2S4 15.4 4 10.2a4.2 4.2 0 0 1 8-1.6 4.2 4.2 0 0 1 8 1.6c0 5.2-8 10-8 10Z" ' + P + '/>',
     /* --- 其他 --- */
     chevron: '<path d="M9.4 5.4 16 12l-6.6 6.6" ' + P + '/>',
     pin: '<path d="M12 21s6.4-6 6.4-11.2A6.4 6.4 0 0 0 5.6 9.8C5.6 15 12 21 12 21Z" ' + P + '/><circle cx="12" cy="9.8" r="2.4" ' + P + '/>',
@@ -4523,6 +4984,14 @@ window.Auth = (function () {
     const dept = Domain.deptFor(state.type);
     const s = A.get();
 
+    // 积分：提交时就把这一单值多少算好存进工单，办结时按这个数发。
+    // 不等办结再算——规则调价不该回头改已经报上去的单子，
+    // 否则用户看到的「预计 +65」和到账数字会对不上。
+    const kind = merge.merged ? (merge.kind === 'crowd' ? 'crowd' : 'self') : 'solo';
+    const estPoints = window.Payout
+      ? Payout.estimate({ severity: severity, type: state.type, kind: kind })
+      : 0;
+
     const ticket = A.registerTicket({
       type: state.type,
       addr: state.addr,
@@ -4532,11 +5001,18 @@ window.Auth = (function () {
       severity: severity,
       merged: !!merge.merged,
       reporters: merge.reporters || 1,
+      kind: kind,
+      estPoints: estPoints,
       ownerId: s ? s.id : A.deviceId(),
       ownerKind: s ? s.kind : 'guest'
     });
 
-    const reward = A.rewardValid({ merged: !!merge.merged, crowd: merge.kind === 'crowd' });
+    // 这一步只结信用与权重，积分要等后勤办结（见 payout.js）
+    const reward = A.rewardValid({
+      merged: !!merge.merged,
+      crowd: merge.kind === 'crowd',
+      estPoints: estPoints
+    });
     state.tickets.unshift({
       code: ticket.code,
       type: state.type,
@@ -4545,6 +5021,7 @@ window.Auth = (function () {
       at: Date.now(),
       photo: state.photo,
       severity: severity,
+      estPoints: estPoints,
       dept: dept.name
     });
 
@@ -4597,6 +5074,13 @@ window.Auth = (function () {
     const dept = Domain.deptFor(state.type);
     const pri = Domain.priorityOf(severity);
 
+    // 把「为什么是这么多分」拆开讲，别只甩一个数字
+    const kind = merge.merged ? (merge.kind === 'crowd' ? 'crowd' : 'self') : 'solo';
+    const bd = window.Payout
+      ? Payout.breakdown({ severity: severity, type: state.type, kind: kind })
+      : null;
+    const pts = reward && reward.estPoints ? reward.estPoints : (bd ? bd.points : 0);
+
     showResult(
       '<div class="result-hero">' +
         '<div class="tick"><svg viewBox="0 0 32 32"><path d="M8 16.6l5.4 5.4L24 11.2"/></svg></div>' +
@@ -4631,7 +5115,15 @@ window.Auth = (function () {
           '<div class="card-t">这次结算</div>' +
           '<div class="chips">' +
             '<span class="chip-ok">信用 +' + reward.creditGain + '</span>' +
-            '<span class="chip-pt">积分 +' + reward.pointGain + '</span>' +
+            '<span class="chip-pt">待发放 +' + pts + ' 积分</span>' +
+          '</div>' +
+          '<div class="ctx-note">' +
+            '<b>积分不在这里发。</b>要等后勤到场核实、并且真的处理完成之后才到账 —— ' +
+            'AI 认了只代表这张单可以开，不代表现场真有东西可修。' +
+            (bd ? '<br>本单：' + bd.severity + ' 星 ' + bd.base + ' 分' +
+              (bd.typeW !== 1 ? ' × ' + bd.typeW : '') +
+              (bd.kindW !== 1 ? ' × ' + bd.kindW + '（' + bd.kindText + '）' : '') +
+              '，合计 <b>' + bd.points + '</b> 分。' : '') +
           '</div>' +
           '<div class="ctx-note">' +
             (merge.merged
@@ -4713,15 +5205,20 @@ window.Auth = (function () {
     $('#resForce').addEventListener('click', function () {
       const s = A.get();
       const dept = Domain.deptFor(state.type);
+      const sev = v.severity || 2;
+      const estPts = window.Payout
+        ? Payout.estimate({ severity: sev, type: state.type, kind: 'review' })
+        : 0;
       const tk = A.registerTicket({
         type: state.type, addr: state.addr, lng: state.lng, lat: state.lat,
-        dept: dept.name, severity: v.severity || 2, merged: false, reporters: 1,
+        dept: dept.name, severity: sev, merged: false, reporters: 1,
+        kind: 'review', estPoints: estPts,
         ownerId: s ? s.id : A.deviceId(), ownerKind: s ? s.kind : 'guest'
       });
       A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
       state.tickets.unshift({
         code: tk.code, type: state.type, addr: state.addr, status: 'review',
-        at: Date.now(), photo: state.photo, severity: v.severity || 2, dept: dept.name
+        at: Date.now(), photo: state.photo, severity: sev, estPoints: estPts, dept: dept.name
       });
       toast('已转人工复核 · ' + tk.code, 'ok');
       go('tickets');
@@ -4839,6 +5336,19 @@ window.Auth = (function () {
     }
 
     const st = STATUS_UI[t.status] || STATUS_UI.pending;
+
+    // 积分状态：到账了说已到账，没到就说清楚卡在"等后勤到场"这一步
+    const paid = !!(t.reward && t.reward.paid);
+    const estPts = paid ? t.reward.points
+      : (typeof t.estPoints === 'number' ? t.estPoints
+        : (window.Payout ? Payout.estimate(t) : 0));
+    const payLine = estPts
+      ? (paid
+          ? '<b style="color:var(--ok)">+' + estPts + ' 已到账</b>'
+          : '<b style="color:var(--warn)">待发放 +' + estPts + '</b>' +
+            '<span style="color:var(--text-3)"> · 后勤到场核实并处理完成后到账</span>')
+      : '—';
+
     box.innerHTML =
       '<div class="card qr">' +
         '<div class="qr-hd">' +
@@ -4853,6 +5363,7 @@ window.Auth = (function () {
           '<dt>负责部门</dt><dd>' + UI.escapeHtml(t.dept || '待分派') + '</dd>' +
           '<dt>紧急度</dt><dd>' + stars(t.severity || 1) + '</dd>' +
           '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+          '<dt>积分</dt><dd>' + payLine + '</dd>' +
         '</dl>' +
         '<div class="tl">' +
           (t.timeline || []).map(function (e, i) {

@@ -171,6 +171,65 @@
 }
 .tm-dot.is-plain::after { display: none; }
 
+/* ============================================================
+   我的位置
+   ------------------------------------------------------------
+   一个蓝点 + 一圈扩散。它和问题点的红色是两套语言：
+   红色是"这里有事"，蓝色是"我在这里"。
+   ============================================================ */
+.tm-me-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.tm-me {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.tm-me-ring {
+  position: absolute;
+  left: -20px;
+  top: -20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(30, 123, 214, .26);
+  animation: tmMePulse 2.6s ease-out infinite;
+}
+.tm-me-dot {
+  position: absolute;
+  left: -6.5px;
+  top: -6.5px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #1E7BD6;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(30, 123, 214, .55);
+}
+/* 位置被模糊过时，光圈开大一圈，表示"大概在这一带" */
+.tm-me.is-spread .tm-me-ring {
+  left: -34px;
+  top: -34px;
+  width: 68px;
+  height: 68px;
+  background: rgba(30, 123, 214, .14);
+}
+.tm-me.is-spread .tm-me-dot {
+  background: rgba(30, 123, 214, .55);
+  border-color: rgba(255, 255, 255, .9);
+}
+@keyframes tmMePulse {
+  0%   { transform: scale(.5); opacity: .85; }
+  70%  { transform: scale(1.55); opacity: 0; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-me-ring { animation: none; opacity: .5; }
+}
+
 </style>
 <style data-from="assets/admin.css">
 /* ==========================================================================
@@ -1578,8 +1637,188 @@ table.orders tbody tr:last-child td { border-bottom: none; }
   }
 }
 
+/* ============================================================
+   现场模式
+   ------------------------------------------------------------
+   一键清空演示数据，只接现场真报上来的工单。
+   适合现场演示：先清空，再让人用手机报几条，看板当场长出来。
+   ============================================================ */
+.btn-live {
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(255, 255, 255, .9);
+  color: var(--text-2);
+  box-shadow: 0 1px 2px rgba(16, 55, 50, .05);
+}
+.btn-live:hover { background: #fff; color: var(--text); }
+.btn-live:active { transform: scale(.97); }
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #B9C6C4;
+  transition: background .2s var(--ease), box-shadow .2s var(--ease);
+}
+.btn-live.is-on {
+  background: rgba(217, 72, 63, .09);
+  border-color: rgba(217, 72, 63, .28);
+  color: #B23A32;
+  font-weight: 600;
+}
+.btn-live.is-on .live-dot {
+  background: #D9483F;
+  box-shadow: 0 0 0 4px rgba(217, 72, 63, .16);
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(217, 72, 63, .18); }
+  50%      { box-shadow: 0 0 0 6px rgba(217, 72, 63, .04); }
+}
+
+.live-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 26px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(217, 72, 63, .1), rgba(217, 72, 63, .03));
+  border: 1px solid rgba(217, 72, 63, .2);
+  font-size: 12.5px;
+  color: #8E3B34;
+  animation: liveBarIn .34s var(--ease) both;
+}
+@keyframes liveBarIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.lb-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #D9483F;
+  flex: none;
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+.lb-t { flex: 1; }
+.lb-t b { font-weight: 700; }
+.lb-n {
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: rgba(217, 72, 63, .12);
+  font-weight: 600;
+}
+.lb-exit {
+  border: 0;
+  background: transparent;
+  color: #8E3B34;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* 抽屉里的现场照片与判定过程 */
+.dr-shot {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #EEF4F2;
+  aspect-ratio: 16 / 10;
+}
+.dr-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dr-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  margin-top: 10px;
+}
+.dr-metric {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding-bottom: 5px;
+  border-bottom: 1px dashed rgba(16, 55, 50, .1);
+}
+.dr-metric b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- 积分结算 ----
+   「办结」现在是付款动作，不只是状态变更，所以按钮和金额都要有存在感。 */
+.op-done {
+  color: var(--warn);
+  border-color: rgba(201, 123, 32, .3);
+}
+.op-done:hover {
+  background: rgba(201, 123, 32, .1);
+  border-color: rgba(201, 123, 32, .55);
+}
+
+.dr-pay {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #FBFAF5, #F6F3EA);
+  border: 1px solid #ECE4D2;
+}
+.dr-pay-num {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--warn);
+  flex-shrink: 0;
+}
+.dr-pay-num b {
+  font-family: var(--font-num, ui-monospace, monospace);
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dr-pay-num span { font-size: 11px; font-weight: 600; }
+.dr-pay-info {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.dr-pay-state {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #A96A1C;
+  background: rgba(255, 255, 255, .8);
+  border: 1px dashed #E2C48E;
+}
+.dr-pay-state.is-paid {
+  color: var(--ok);
+  background: rgba(46, 139, 98, .1);
+  border: 1px solid rgba(46, 139, 98, .25);
+}
+.dr-pay-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 0;
+  border-radius: 9px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s ease, transform .1s ease;
+}
+.dr-pay-btn:hover { background: var(--brand-deep); border-color: var(--brand-deep); }
+.dr-pay-btn:active { transform: translateY(1px); }
+
 </style>
-<!-- 单文件构建 · 2026-11-24 06:18:42 · CSS×2 JS×3 -->
+<!-- 单文件构建 · 2026-11-24 07:14:56 · CSS×2 JS×4 -->
 </head>
 <body>
 
@@ -1682,6 +1921,11 @@ table.orders tbody tr:last-child td { border-bottom: none; }
           <input class="search" id="search" type="text" placeholder="搜索工单号、位置、摘要" spellcheck="false">
         </div>
 
+        <button class="btn btn-live" id="btnLive">
+          <span class="live-dot"></span>
+          <span id="btnLiveText">现场模式</span>
+        </button>
+
         <button class="btn btn-ghost" id="btnExport">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
                stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
@@ -1693,6 +1937,14 @@ table.orders tbody tr:last-child td { border-bottom: none; }
         <div class="avatar" title="管理员 · 后勤保障部">后</div>
       </div>
     </header>
+
+    <!-- 现场模式提示条：只在这时候出现，免得平时占地方 -->
+    <div class="live-bar" id="liveBar" hidden>
+      <span class="lb-dot"></span>
+      <span class="lb-t"><b>现场模式</b>　演示数据已清空，只显示现场报上来的工单</span>
+      <span class="lb-n" id="liveCount">0 条</span>
+      <button class="lb-exit" id="btnLiveExit">退出并恢复演示数据</button>
+    </div>
 
     <!-- ============ 视图 1：总览看板 ============ -->
     <section class="view active" data-view="dashboard">
@@ -2110,6 +2362,7 @@ table.orders tbody tr:last-child td { border-bottom: none; }
       height: 0,
       tiles: {},        // key: z/x/y → img 元素
       markers: [],
+      me: null,         // 我的位置（已转成 GCJ-02 的世界坐标）
       heat: [],
       failedTiles: 0,
       loadedTiles: 0,
@@ -2125,6 +2378,11 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     var layerMarks = document.createElement('div');
     layerMarks.className = 'tm-marks';
 
+    // 我的位置单独一层：它在所有问题点之下，也不参与聚合，
+    // 免得和一堆红点混在一起看不出哪是自己
+    var layerMe = document.createElement('div');
+    layerMe.className = 'tm-me-layer';
+
     var gridHint = document.createElement('div');
     gridHint.className = 'tm-grid';
     gridHint.style.display = 'none';
@@ -2133,6 +2391,7 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     container.appendChild(gridHint);
     container.appendChild(layerTiles);
     container.appendChild(layerHeat);
+    container.appendChild(layerMe);
     container.appendChild(layerMarks);
 
     var ctx = layerHeat.getContext('2d');
@@ -2300,6 +2559,45 @@ table.orders tbody tr:last-child td { border-bottom: none; }
                       p.y > -pad && p.y < state.height + pad;
         m._el.style.visibility = visible ? 'visible' : 'hidden';
       });
+      placeMe();
+    }
+
+    /* -------- 我的位置 -------- */
+
+    var meEl = null;
+
+    function placeMe() {
+      if (!meEl || !state.me) return;
+      var p = toPixel(state.me[0], state.me[1]);
+      meEl.style.left = p.x + 'px';
+      meEl.style.top = p.y + 'px';
+      var pad = 120;
+      var on = p.x > -pad && p.x < state.width + pad &&
+               p.y > -pad && p.y < state.height + pad;
+      meEl.style.visibility = on ? 'visible' : 'hidden';
+    }
+
+    /**
+     * 画"我在哪"。
+     * 传 null 就收起。传 {spread:true} 表示这是一个模糊过的位置，
+     * 光圈会开得更大，让"我知道你大概在这一带"这件事在视觉上说得通。
+     */
+    function setMe(lng, lat, opts) {
+      if (lng == null || lat == null) {
+        if (meEl) { meEl.parentNode.removeChild(meEl); meEl = null; }
+        state.me = null;
+        return api;
+      }
+      if (!meEl) {
+        meEl = document.createElement('div');
+        meEl.className = 'tm-me';
+        meEl.innerHTML = '<i class="tm-me-ring"></i><i class="tm-me-dot"></i>';
+        layerMe.appendChild(meEl);
+      }
+      meEl.classList.toggle('is-spread', !!(opts && opts.spread));
+      state.me = wgs2gcj(lng, lat);
+      placeMe();
+      return api;
     }
 
     /* -------- 热力 -------- */
@@ -2511,6 +2809,7 @@ table.orders tbody tr:last-child td { border-bottom: none; }
       },
       render: render,
       setMarkers: setMarkers,
+      setMe: setMe,
       setHeat: setHeat,
       /**
        * 运行期换底图（标准 / 卫星 / 路网）。
@@ -2779,6 +3078,260 @@ table.orders tbody tr:last-child td { border-bottom: none; }
   global.Domain = D;
 
 })(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script data-from="../shared/payout.js">
+/* ==========================================================================
+ * 见微 · 积分结算
+ * --------------------------------------------------------------------------
+ * 一条规则贯穿全系统：**积分不是 AI 发的，是后勤发的。**
+ *
+ * 为什么要把这两件事拆开：
+ *
+ *   AI 判"有效"只是把工单放进派单池，它证明的是"这张照片像那么回事"，
+ *   不证明"这里真的有一盏坏灯"。如果 AI 一放行就到账，那这套积分
+ *   奖励的其实是"会拍照的人"，而不是"帮上忙的人"——刷单也就有了动机：
+ *   找一面脏墙、换个角度拍十次，照样拿分。
+ *
+ *   所以钱要压在最后一环：后勤到场、核实、处理完，才结算。
+ *   到这一步，乱报的人拿不到任何东西，因为他报的地方根本没东西可修；
+ *   真发现问题的人，拿到的分也才对得起他跑的那一趟。
+ *
+ * 分档也很重要。「垃圾桶满了」和「井盖没了」不该同一个价。
+ * 分由三样东西乘出来：
+ *
+ *   紧急度  1–5 星  →  20 / 30 / 45 / 65 / 90   基础分，越急越贵
+ *   问题类型        →  安全 ×1.2，路面 ×1.1，积水 ×1.05，其余 ×1
+ *   上报方式        →  独立发现 ×1，帮别人确认 ×0.6，同一处重复 ×0.4
+ *
+ * 结果取整到 5 的倍数——界面上写「预计 +65」比「预计 +63.7」可信得多。
+ *
+ * 这个文件同时被用户端和管理后台引用。后台没有引 auth.js（那一套带着
+ * 登录闸门，后台用不上），所以这里只按约定的键名直接读写 localStorage，
+ * 不依赖任何上游模块。
+ * ========================================================================== */
+
+window.Payout = (function () {
+  'use strict';
+
+  var AUTH_KEY = 'jw.auth.v2';
+  var PROF_KEY = 'jw.auth.v2.profiles';
+  var CODE_KEY = 'jw.codes.v2';
+
+  /* ---------------- 分档表 ---------------- */
+
+  var BASE = { 1: 20, 2: 30, 3: 45, 4: 65, 5: 90 };
+
+  var TYPE_W = {
+    safety: 1.2,      // 安全隐患：可能伤到人，最贵
+    road: 1.1,        // 路面破损：影响通行，次之
+    water: 1.05,      // 积水漏水：会扩散，越早越省事
+    facility: 1.05,   // 设施损坏：个人修不了，等专业班组
+    network: 1.05,    // 网络通信：影响面大，一坏一片
+    lighting: 1,
+    sanitation: 1,
+    traffic: 1,
+    green: 0.95,      // 绿化：好看但不挡路，分最低
+    other: 1
+  };
+
+  var KIND_W = {
+    solo: 1,          // 独立发现
+    crowd: 0.6,       // 帮别人确认了同一处：少跑一趟，但确实有人证
+    self: 0.4,        // 同一处重复报：不鼓励，但也不至于白报
+    review: 0.75      // AI 没过、自己转人工，最后核实为真
+  };
+
+  var KIND_TEXT = {
+    solo: '独立发现',
+    crowd: '帮别人确认了同一处',
+    self: '同一处重复上报',
+    review: '转人工复核后核实为真'
+  };
+
+  /* ---------------- 存储 ---------------- */
+
+  function read(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  function write(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch (e) { return false; }
+  }
+
+  /* ---------------- 算分 ---------------- */
+
+  function clampSev(n) {
+    var s = Math.round(Number(n) || 1);
+    return Math.max(1, Math.min(5, s));
+  }
+
+  /** 上报方式：没显式传就按「有没有并单」推断 */
+  function kindOf(o) {
+    if (o.kind && KIND_W[o.kind] != null) return o.kind;
+    if (o.status === 'review') return 'review';
+    return o.merged ? 'crowd' : 'solo';
+  }
+
+  /**
+   * 算一条上报值多少分。
+   * @param {object} o  { severity, type, kind, merged, status }
+   * @return {number}   5 的倍数
+   */
+  function estimate(o) {
+    o = o || {};
+    var sev = clampSev(o.severity);
+    var tw = TYPE_W[o.type] != null ? TYPE_W[o.type] : 1;
+    var kw = KIND_W[kindOf(o)] != null ? KIND_W[kindOf(o)] : 1;
+    var pts = Math.round(BASE[sev] * tw * kw / 5) * 5;
+    return Math.max(5, pts);
+  }
+
+  /** 给界面拆着讲：为什么是这么多分 */
+  function breakdown(o) {
+    o = o || {};
+    var sev = clampSev(o.severity);
+    var k = kindOf(o);
+    return {
+      severity: sev,
+      base: BASE[sev],
+      type: o.type || 'other',
+      typeW: TYPE_W[o.type] != null ? TYPE_W[o.type] : 1,
+      kind: k,
+      kindText: KIND_TEXT[k] || '',
+      kindW: KIND_W[k] != null ? KIND_W[k] : 1,
+      points: estimate(o)
+    };
+  }
+
+  /** 档位表，用户端说明页直接照着渲染 */
+  function ladder() {
+    return [1, 2, 3, 4, 5].map(function (s) {
+      return { severity: s, points: BASE[s] };
+    });
+  }
+
+  function kindText(k) { return KIND_TEXT[k] || ''; }
+
+  /* ---------------- 结算 ---------------- */
+
+  function profileKey(kind, id) { return kind + ':' + id; }
+
+  /**
+   * 后勤办结后调用：给上报人加分，并把工单标成 resolved。
+   *
+   * 幂等——同一张工单点两次「完成」不会发两次钱，
+   * 这点在演示时特别重要：台下有人会让你多点两下。
+   *
+   * @param {string} code  查询编码
+   * @param {object} opts  { at: 时间戳, note: 覆盖时间线文案 }
+   * @return {object} { ok, points, already, code, msg }
+   */
+  function settle(code, opts) {
+    opts = opts || {};
+
+    var codes = read(CODE_KEY, {}) || {};
+    var key = String(code || '').trim().toUpperCase();
+    var t = codes[key];
+
+    if (!t) return { ok: false, code: key, msg: '没有这张工单' };
+
+    if (t.reward && t.reward.paid) {
+      return { ok: false, already: true, code: key, points: t.reward.points, msg: '这张工单的积分已经发过了' };
+    }
+
+    var now = opts.at || Date.now();
+    var kind = kindOf(t);
+    // 提交时算过的那个数就是承诺给用户的数，办结时必须发同样的数。
+    // 只有老数据（没有 estPoints）才现算，避免规则改过之后前后不一致。
+    var pts = typeof t.estPoints === 'number'
+      ? t.estPoints
+      : estimate({ severity: t.severity, type: t.type, kind: kind, merged: t.merged, status: t.status });
+
+    // ---- 加分给上报人 ----
+    var profs = read(PROF_KEY, {}) || {};
+    var pk = profileKey(t.ownerKind || 'guest', t.ownerId || '');
+    var prof = profs[pk];
+
+    if (prof) {
+      prof.points = (prof.points || 0) + pts;
+      prof.resolvedCnt = (prof.resolvedCnt || 0) + 1;
+      prof.at = now;
+      profs[pk] = prof;
+      write(PROF_KEY, profs);
+    }
+
+    // 当前这台设备正好是本人时，顺手把会话里那份也改了，
+    // 否则用户得刷新一次才看见积分涨了——演示时这一步很掉分。
+    var sess = read(AUTH_KEY, null);
+    if (sess && sess.id === t.ownerId && sess.kind === (t.ownerKind || 'guest')) {
+      sess.points = (sess.points || 0) + pts;
+      sess.resolvedCnt = (sess.resolvedCnt || 0) + 1;
+      write(AUTH_KEY, sess);
+    }
+
+    // ---- 工单本身 ----
+    t.status = 'resolved';
+    t.reward = {
+      points: pts,
+      at: now,
+      paid: true,
+      kind: kind,
+      kindText: KIND_TEXT[kind]
+    };
+    t.timeline = t.timeline || [];
+    t.timeline.push({
+      at: now,
+      label: opts.note || ('后勤已到场核实并处理完成 · ' + pts + ' 积分已到账'),
+      tone: 'ok'
+    });
+
+    codes[key] = t;
+    write(CODE_KEY, codes);
+
+    return { ok: true, code: key, points: pts, kind: kind, answered: !!prof };
+  }
+
+  /**
+   * 批量结算一组工单，返回总发放额。
+   * 后台「合并工单」那种一次动几条的场景用它。
+   */
+  function settleMany(list, opts) {
+    var total = 0, n = 0;
+    (list || []).forEach(function (c) {
+      var r = settle(c, opts);
+      if (r.ok) { total += r.points; n++; }
+    });
+    return { count: n, points: total };
+  }
+
+  /** 只读查询：这张单子的积分发没发 */
+  function statusOf(code) {
+    var codes = read(CODE_KEY, {}) || {};
+    var t = codes[String(code || '').trim().toUpperCase()];
+    if (!t) return null;
+    return {
+      reward: t.reward || null,
+      pending: t.reward ? 0 : (typeof t.estPoints === 'number' ? t.estPoints : estimate(t)),
+      status: t.status
+    };
+  }
+
+  return {
+    BASE: BASE,
+    estimate: estimate,
+    breakdown: breakdown,
+    ladder: ladder,
+    kindText: kindText,
+    settle: settle,
+    settleMany: settleMany,
+    statusOf: statusOf
+  };
+})();
 
 </script>
 <script data-from="assets/admin.js">
@@ -3543,7 +4096,8 @@ table.orders tbody tr:last-child td { border-bottom: none; }
               ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
               : '') +
             (o.status !== 'resolved'
-              ? '<button class="op" data-act="done" data-id="' + o.id + '">完成</button>'
+              ? '<button class="op op-done" data-act="done" data-id="' + o.id + '" ' +
+                  'title="办结并向上报人发放积分">办结</button>'
               : '') +
             '<button class="op" data-act="detail" data-id="' + o.id + '">详情</button>' +
           '</div>' +
@@ -3592,15 +4146,41 @@ table.orders tbody tr:last-child td { border-bottom: none; }
           return;
         }
 
-        ORDERS.forEach(function (o) {
-          if (o.id !== id) return;
-          if (act === 'start') o.status = 'processing';
-          if (act === 'done') o.status = 'resolved';
-        });
+        var target = ORDERS.filter(function (x) { return x.id === id; })[0];
+        if (!target) return;
+
+        if (act === 'start') {
+          target.status = 'processing';
+          renderOrders();
+          renderMetrics();
+          toast('已受理，已通知负责班组', 'ok');
+          return;
+        }
+
+        // ---- 办结 = 发积分的唯一入口 ----
+        // 积分不是 AI 放行时发的，是这里发的。后台点这一下，等于确认
+        // 「人到过现场、问题真解决了」，钱才该出去。
+        target.status = 'resolved';
+
+        var pay = null;
+        if (window.Payout && (target.live || target.code)) {
+          // 现场模式进来的单子带的是真实编码，能落到具体某个上报人头上
+          pay = Payout.settle(target.orderNo, { note: '后勤已到场核实并处理完成 · 积分到账' });
+          if (pay && pay.ok) target.reward = { points: pay.points, paid: true };
+        }
 
         renderOrders();
         renderMetrics();
-        toast(act === 'start' ? '已受理，已通知负责班组' : '已标记完成，反馈已推送给上报人', 'ok');
+
+        if (pay && pay.ok) {
+          toast('已办结 · ' + pay.points + ' 积分已发放给上报人', 'ok');
+        } else if (pay && pay.already) {
+          toast('已办结 · 这张单的积分之前就发过了，不重复发', 'ok');
+        } else if (pay && pay.msg) {
+          toast('已办结 · ' + pay.msg, 'warn');
+        } else {
+          toast('已办结（演示工单没有真实上报人，不涉及积分发放）', 'ok');
+        }
       });
     });
 
@@ -4004,6 +4584,10 @@ table.orders tbody tr:last-child td { border-bottom: none; }
           '<b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) + '</div>' +
       '</div>' +
 
+      (o.live ? liveSection(o) : '') +
+
+      paySection(o) +
+
       '<div class="dr-section">' +
         '<div class="dr-section-title">上报记录 · ' + o.reports.length + ' 条 / ' + uniq.length + ' 人</div>' +
         o.reports.map(function (r) {
@@ -4026,6 +4610,34 @@ table.orders tbody tr:last-child td { border-bottom: none; }
 
     $('#drawer').classList.add('on');
     $('#drawerMask').classList.add('on');
+
+    // 抽屉里也能直接办结发分：看完现场照片、确认没问题，就地处理，
+    // 不用退回去到列表里再找一遍这一行。
+    var payBtn = $('#drawerBody [data-pay]');
+    if (payBtn) {
+      payBtn.addEventListener('click', function () {
+        var code = payBtn.dataset.pay;
+        var pay = window.Payout ? Payout.settle(code) : null;
+
+        if (!pay || !pay.ok) {
+          toast((pay && pay.msg) || '结算失败', 'warn');
+          return;
+        }
+
+        ORDERS.forEach(function (x) {
+          if (x.orderNo !== code) return;
+          x.status = 'resolved';
+          x.reward = { points: pay.points, paid: true };
+        });
+
+        renderOrders();
+        renderMetrics();
+
+        var fresh = ORDERS.filter(function (x) { return x.orderNo === code; })[0];
+        if (fresh) openDrawer(fresh);
+        toast('已办结 · ' + pay.points + ' 积分已发放给上报人', 'ok');
+      });
+    }
   }
 
   function closeDrawer() {
@@ -4099,6 +4711,265 @@ table.orders tbody tr:last-child td { border-bottom: none; }
   }
 
   /* ======================================================================
+   * 现场模式
+   * ----------------------------------------------------------------------
+   * 演示时最尴尬的一幕：你在台上说"刚收到一条上报"，屏幕上却躺着一堆
+   * 早就准备好的假数据。开这个模式，演示数据立刻清空，看板只接现场真报
+   * 上来的工单 —— 手机报一条，这边两秒后长出来一条。
+   *
+   * 三端同源（都在同一个域名下），localStorage 是通的，
+   * 所以不需要后端也能做到这件事。
+   * ==================================================================== */
+
+  var LIVE = { on: false, seen: {}, timer: null };
+  var BLOCK_LOG_SEED = BLOCK_LOG.slice();
+
+  function ticketToOrder(t) {
+    var meta = D.type(t.type);
+    var a = t.analysis || null;
+    return {
+      id: 'live-' + t.code,
+      orderNo: t.code,
+      type: t.type,
+      address: t.addr,
+      baseSeverity: t.severity,
+      severity: t.severity,
+      summary: t.desc || (meta.label + ' · 现场上报'),
+      advice: (a && a.advice) || 'AI 已放行，按类型自动派单',
+      lng: t.lng,
+      lat: t.lat,
+      dept: D.deptFor(t.type),
+      status: t.status === 'resolved' ? 'resolved' : t.status === 'processing' ? 'processing' : 'pending',
+      createdAt: t.at,
+      reports: [{ by: '现场', credit: 80, at: t.at, selfDup: false }],
+      live: true,
+      code: t.code,
+      // 积分：提交时算好的预估额、上报方式、以及到底发没发
+      estPoints: t.estPoints,
+      kind: t.kind,
+      reward: t.reward || null,
+      photo: t.photo || null,
+      analysis: a
+    };
+  }
+
+  /**
+   * 直接从 localStorage 里读编码表。
+   * 后台没有引 Auth 模块（它带着账号、闸门那一套，后台用不上），
+   * 这里只要一张编码表就够了。键名和 auth.js 里的 CODE_KEY 是同一个。
+   */
+  function liveOrders() {
+    var raw;
+    try { raw = localStorage.getItem('jw.codes.v2'); } catch (e) { return []; }
+    if (!raw) return [];
+    var codes;
+    try { codes = JSON.parse(raw); } catch (e) { return []; }
+
+    return Object.keys(codes)
+      .map(function (k) { return codes[k]; })
+      .filter(function (t) { return t && t.lng && t.lat && t.type; })
+      .sort(function (a, b) { return b.at - a.at; })
+      .map(ticketToOrder);
+  }
+
+  function syncLive(quiet) {
+    if (!LIVE.on) return;
+
+    var fresh = liveOrders();
+    var added = 0;
+
+    fresh.forEach(function (o) {
+      if (LIVE.seen[o.id]) return;
+      LIVE.seen[o.id] = 1;
+      // 已经在列表里的不重复加（合并上报会更新同一条编码）
+      var exist = ORDERS.filter(function (x) { return x.id === o.id; })[0];
+      if (exist) {
+        exist.severity = o.severity;
+        exist.status = o.status;
+        exist.reports = o.reports;
+        exist.estPoints = o.estPoints;
+        exist.reward = o.reward;
+      } else {
+        ORDERS.unshift(o);
+        added++;
+      }
+    });
+
+    // 状态可能被后台改过，同步回来（后台操作会写回编码表）
+    ORDERS.forEach(function (o) {
+      if (!o.live) return;
+      var t = fresh.filter(function (x) { return x.id === o.id; })[0];
+      if (t) { o.status = t.status; o.reward = t.reward; }
+    });
+
+    var n = ORDERS.length;
+    var el = $('#liveCount');
+    if (el) el.textContent = n + ' 条';
+
+    if (added) {
+      renderAll();
+      if (!quiet) toast('收到 ' + added + ' 条现场上报', 'ok');
+    }
+  }
+
+  function renderAll() {
+    renderMetrics();
+    renderTrend();
+    renderDonut();
+    renderRank();
+    renderHeat();
+    renderOrders();
+    renderMergeAdvice();
+  }
+
+  function setLive(on) {
+    LIVE.on = on;
+
+    $('#btnLive').classList.toggle('is-on', on);
+    $('#btnLiveText').textContent = on ? '现场模式 · 开' : '现场模式';
+    $('#liveBar').hidden = !on;
+
+    if (on) {
+      // 先清空：演示数据、拦截记录、以及所有缓存的分组
+      ORDERS.length = 0;
+      BLOCK_LOG.length = 0;
+      LIVE.seen = {};
+      state.expanded = {};
+
+      ORDERS.unshift.apply(ORDERS, liveOrders());
+      ORDERS.forEach(function (o) { LIVE.seen[o.id] = 1; });
+
+      $('#liveCount').textContent = ORDERS.length + ' 条';
+      renderAll();
+
+      // 每 2 秒看一次编码表，现场报的会自己冒出来
+      clearInterval(LIVE.timer);
+      LIVE.timer = setInterval(function () { syncLive(false); }, 2000);
+
+      toast('演示数据已清空，等待现场上报', 'ok');
+    } else {
+      clearInterval(LIVE.timer);
+      LIVE.timer = null;
+
+      ORDERS.length = 0;
+      ORDERS.unshift.apply(ORDERS, buildOrders());
+      // buildOrders 之后补上那条「同一人重复报」的记录
+      if (ORDERS[0]) {
+        ORDERS[0].reports.push({
+          by: '李', credit: 92, at: ORDERS[0].createdAt + 0.55 * HOUR, selfDup: true
+        });
+      }
+
+      BLOCK_LOG.length = 0;
+      BLOCK_LOG.push.apply(BLOCK_LOG, BLOCK_LOG_SEED);
+
+      renderAll();
+      toast('已恢复演示数据');
+    }
+
+    if (heatMap) setTimeout(function () { heatMap.resize(); }, 60);
+  }
+
+  /**
+   * 抽屉里的「积分结算」。
+   *
+   * 这一块存在的意义是让处理的人看见：自己点的这一下会往外发多少钱。
+   * 以前「完成」只是个状态变更，现在它同时是一次付款动作，
+   * 那就必须在点之前把金额、依据、发没发都摊开。
+   */
+  function paySection(o) {
+    var canPay = !!(window.Payout && (o.live || o.code));
+    var paid = !!(o.reward && o.reward.paid);
+
+    if (!canPay) {
+      return '<div class="dr-section">' +
+        '<div class="dr-section-title">积分结算</div>' +
+        '<div class="dr-note">这条是演示数据，没有真实上报人，办结时不产生积分。' +
+          '开「现场模式」用手机真报一条，就能看到从上报到到账的完整链路。</div>' +
+      '</div>';
+    }
+
+    var bd = window.Payout
+      ? Payout.breakdown({ severity: o.severity, type: o.type, kind: (o.reward && o.reward.kind) || o.kind })
+      : null;
+
+    var pts = paid ? o.reward.points
+      : (typeof o.estPoints === 'number' && o.estPoints ? o.estPoints : (bd ? bd.points : 0));
+
+    var t = D.type(o.type);
+
+    var how = bd
+      ? '<div>' + bd.severity + ' 星 · 基础 ' + bd.base + ' 分' + '</div>' +
+        '<div>' + escapeHtml(t.label) +
+          (bd.typeW !== 1 ? ' ×' + bd.typeW : '') +
+          ' · ' + escapeHtml(bd.kindText || '独立发现') +
+          (bd.kindW !== 1 ? ' ×' + bd.kindW : '') + '</div>'
+      : '';
+
+    return '<div class="dr-section">' +
+      '<div class="dr-section-title">积分结算</div>' +
+      '<div class="dr-pay">' +
+        '<div class="dr-pay-num"><b>' + pts + '</b><span>分</span></div>' +
+        '<div class="dr-pay-info">' + how + '</div>' +
+        '<span class="dr-pay-state' + (paid ? ' is-paid' : '') + '">' +
+          (paid ? '已到账' : '待发放') + '</span>' +
+      '</div>' +
+      '<div class="dr-note" style="margin-top:9px">' +
+        (paid
+          ? '积分已随办结转给上报人，工单时间线上有记录。'
+          : '点「办结并发分」才发。AI 放行只说明这张单能开，不代表现场真有东西可修——' +
+            '钱压在最后这一步，乱报的人在这里拿不到任何东西。') +
+      '</div>' +
+      (paid || o.status === 'resolved' ? '' :
+        '<button class="dr-pay-btn" data-pay="' + escapeHtml(o.orderNo) + '">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" ' +
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+            'style="vertical-align:-2px;margin-right:5px"><path d="M20 7L9.5 17.5 4 12"/></svg>' +
+          '办结并发分</button>') +
+    '</div>';
+  }
+
+  /** 抽屉里的「现场这一条」：照片 + 判定过程 */
+  function liveSection(o) {
+    var a = o.analysis || {};
+    var m = a.metrics || {};
+    var src = a.source === 'deepseek' ? 'DeepSeek 语义判定' : '本地规则引擎';
+
+    var LABEL = {
+      sharpness: '清晰度',
+      brightness: '亮度',
+      saturation: '饱和度',
+      flatRatio: '平坦区',
+      edgeDensity: '边缘密度'
+    };
+
+    var rows = Object.keys(LABEL).filter(function (k) {
+      return m[k] != null;
+    }).map(function (k) {
+      var v = m[k];
+      var show = typeof v === 'number' ? (v < 10 ? v.toFixed(3) : Math.round(v)) : v;
+      return '<div class="dr-metric"><span>' + LABEL[k] + '</span><b>' + show + '</b></div>';
+    }).join('');
+
+    return '<div class="dr-section">' +
+      '<div class="dr-section-title">现场原始记录</div>' +
+      (o.photo ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>' : '') +
+      (o.summary ? '<div class="dr-note" style="margin-top:10px">“' + escapeHtml(o.summary) + '”</div>' : '') +
+      '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
+        '<span class="dr-v">' + src +
+        (a.soft ? '（画质仅提示）' : '') + '</span></div>' +
+      (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
+      '<div class="dr-note" style="margin-top:8px">' +
+        (a.pass
+          ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，' +
+            '核实完点「办结并发分」。'
+          : '上报人选择的是「转人工」，所以这张单子没经过自动派单，' +
+            '等人工确认后再分给班组。') +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ======================================================================
    * 启动
    * ==================================================================== */
 
@@ -4114,6 +4985,9 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     });
 
     $('#btnExport').addEventListener('click', exportExcel);
+
+    $('#btnLive').addEventListener('click', function () { setLive(!LIVE.on); });
+    $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
 
     // 热力图筛选
     $$('#heatFilter .seg-btn').forEach(function (b) {

@@ -1402,3 +1402,183 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ============================================================
+   现场模式
+   ------------------------------------------------------------
+   一键清空演示数据，只接现场真报上来的工单。
+   适合现场演示：先清空，再让人用手机报几条，看板当场长出来。
+   ============================================================ */
+.btn-live {
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(255, 255, 255, .9);
+  color: var(--text-2);
+  box-shadow: 0 1px 2px rgba(16, 55, 50, .05);
+}
+.btn-live:hover { background: #fff; color: var(--text); }
+.btn-live:active { transform: scale(.97); }
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #B9C6C4;
+  transition: background .2s var(--ease), box-shadow .2s var(--ease);
+}
+.btn-live.is-on {
+  background: rgba(217, 72, 63, .09);
+  border-color: rgba(217, 72, 63, .28);
+  color: #B23A32;
+  font-weight: 600;
+}
+.btn-live.is-on .live-dot {
+  background: #D9483F;
+  box-shadow: 0 0 0 4px rgba(217, 72, 63, .16);
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(217, 72, 63, .18); }
+  50%      { box-shadow: 0 0 0 6px rgba(217, 72, 63, .04); }
+}
+
+.live-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 26px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(217, 72, 63, .1), rgba(217, 72, 63, .03));
+  border: 1px solid rgba(217, 72, 63, .2);
+  font-size: 12.5px;
+  color: #8E3B34;
+  animation: liveBarIn .34s var(--ease) both;
+}
+@keyframes liveBarIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.lb-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #D9483F;
+  flex: none;
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+.lb-t { flex: 1; }
+.lb-t b { font-weight: 700; }
+.lb-n {
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: rgba(217, 72, 63, .12);
+  font-weight: 600;
+}
+.lb-exit {
+  border: 0;
+  background: transparent;
+  color: #8E3B34;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* 抽屉里的现场照片与判定过程 */
+.dr-shot {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #EEF4F2;
+  aspect-ratio: 16 / 10;
+}
+.dr-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dr-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  margin-top: 10px;
+}
+.dr-metric {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding-bottom: 5px;
+  border-bottom: 1px dashed rgba(16, 55, 50, .1);
+}
+.dr-metric b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- 积分结算 ----
+   「办结」现在是付款动作，不只是状态变更，所以按钮和金额都要有存在感。 */
+.op-done {
+  color: var(--warn);
+  border-color: rgba(201, 123, 32, .3);
+}
+.op-done:hover {
+  background: rgba(201, 123, 32, .1);
+  border-color: rgba(201, 123, 32, .55);
+}
+
+.dr-pay {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #FBFAF5, #F6F3EA);
+  border: 1px solid #ECE4D2;
+}
+.dr-pay-num {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--warn);
+  flex-shrink: 0;
+}
+.dr-pay-num b {
+  font-family: var(--font-num, ui-monospace, monospace);
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dr-pay-num span { font-size: 11px; font-weight: 600; }
+.dr-pay-info {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.dr-pay-state {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #A96A1C;
+  background: rgba(255, 255, 255, .8);
+  border: 1px dashed #E2C48E;
+}
+.dr-pay-state.is-paid {
+  color: var(--ok);
+  background: rgba(46, 139, 98, .1);
+  border: 1px solid rgba(46, 139, 98, .25);
+}
+.dr-pay-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 0;
+  border-radius: 9px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s ease, transform .1s ease;
+}
+.dr-pay-btn:hover { background: var(--brand-deep); border-color: var(--brand-deep); }
+.dr-pay-btn:active { transform: translateY(1px); }
