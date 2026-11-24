@@ -1,0 +1,44 @@
+<view class="page">
+
+  <scroll-view class="tabs" scroll-x enable-flex show-scrollbar="{{false}}">
+    <view
+      class="tab {{tab === item.key ? 'on' : ''}}"
+      wx:for="{{tabs}}"
+      wx:key="key"
+      data-key="{{item.key}}"
+      bindtap="switchTab"
+    >{{item.label}}</view>
+  </scroll-view>
+
+  <view class="list">
+    <view
+      class="item anim"
+      wx:for="{{list}}"
+      wx:key="id"
+      data-urls="{{item.files}}"
+      data-current="{{item.files[0]}}"
+      bindtap="preview"
+    >
+      <image class="thumb" src="{{item.files[0]}}" mode="aspectFill" lazy-load />
+
+      <view class="grow">
+        <view class="item-head">
+          <text class="type">{{item.typeLabel}}</text>
+          <text class="status" style="color: {{item.statusColor}}">{{item.statusLabel}}</text>
+        </view>
+        <view class="addr ellipsis">{{item.address || '已记录坐标'}}</view>
+        <view class="meta">
+          <text class="hint">{{item.timeText}}</text>
+          <text class="hint" wx:if="{{item.merged}}">· 已与他人合并</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty" wx:if="{{!loading && !list.length}}">
+    <view class="empty-dot"></view>
+    <view>{{tab === 'all' ? '还没有上报记录' : '这个分类下还没有记录'}}</view>
+    <view class="btn-ghost empty-btn" bindtap="goReport">去上报一个</view>
+  </view>
+
+</view>

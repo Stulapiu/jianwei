@@ -1,0 +1,147 @@
+.page {
+  padding-top: 40rpx;
+  padding-bottom: 60rpx;
+}
+
+/* ---------- 头部 ---------- */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  margin-bottom: 36rpx;
+}
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: var(--brand-light);
+  color: var(--brand);
+  font-size: 36rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- 信用卡片 ---------- */
+.credit-card {
+  background: var(--brand);
+  border-radius: 28rpx;
+  padding: 34rpx 34rpx 30rpx;
+  color: #fff;
+  margin-bottom: 20rpx;
+}
+.credit-card .hint { color: rgba(255, 255, 255, 0.72); }
+.credit-num {
+  font-size: 76rpx;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -2rpx;
+  margin-top: 4rpx;
+}
+.credit-tag {
+  padding: 8rpx 20rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 24rpx;
+}
+.bar {
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 26rpx 0 18rpx;
+  overflow: hidden;
+}
+.bar-in {
+  height: 100%;
+  border-radius: 4rpx;
+  background: #fff;
+  transition: width 800ms var(--ease);
+}
+.credit-note { font-size: 22rpx; }
+
+/* ---------- 统计 ---------- */
+.stat-row {
+  display: flex;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 30rpx 0;
+  margin-bottom: 20rpx;
+}
+.stat {
+  flex: 1;
+  text-align: center;
+  position: relative;
+}
+.stat + .stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rpx;
+  height: 40rpx;
+  background: var(--line);
+}
+.stat .n {
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.stat .n.green { color: var(--ok); }
+
+/* ---------- 徽章 ---------- */
+.card { margin-bottom: 20rpx; }
+.link { color: var(--brand); }
+.badge-row {
+  display: flex;
+  gap: 28rpx;
+  margin-top: 28rpx;
+  flex-wrap: wrap;
+}
+.badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  animation: pop 500ms var(--spring) both;
+}
+.badge-icon {
+  width: 92rpx;
+  height: 92rpx;
+  border-radius: 50%;
+  background: #F4F7F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 42rpx;
+}
+.badge-name { font-size: 22rpx; color: var(--text-2); }
+.badge-empty {
+  margin-top: 26rpx;
+  padding: 28rpx;
+  border-radius: 16rpx;
+  background: #F7FAF9;
+  font-size: 25rpx;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+/* ---------- 菜单 ---------- */
+.menu {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 0 28rpx;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 34rpx 0;
+  font-size: 29rpx;
+  color: var(--text);
+}
+.menu-item + .menu-item {
+  border-top: 1rpx solid var(--line);
+}
+.arrow { color: var(--text-3); font-size: 32rpx; }

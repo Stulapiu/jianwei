@@ -1,0 +1,93 @@
+.page {
+  padding-top: 40rpx;
+  padding-bottom: 60rpx;
+}
+
+.head { margin-bottom: 36rpx; }
+.head .muted { margin-top: 10rpx; line-height: 1.6; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+
+.badge-card {
+  padding: 32rpx 26rpx 28rpx;
+  border-radius: 24rpx;
+  background: #fff;
+  text-align: center;
+  border: 1rpx solid transparent;
+}
+.badge-card.owned {
+  border-color: var(--brand-light);
+  background: linear-gradient(#FFFFFF, #FBFDFC);
+}
+
+.icon-wrap {
+  position: relative;
+  width: 100rpx;
+  height: 100rpx;
+  margin: 0 auto 20rpx;
+}
+.icon {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #F4F7F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 46rpx;
+  filter: grayscale(1);
+  opacity: 0.45;
+  transition: all 400ms var(--ease);
+}
+.owned .icon {
+  background: #FAEEDA;
+  filter: none;
+  opacity: 1;
+  animation: pop 560ms var(--spring) both;
+}
+.lock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: #E4EBE9;
+  border: 3rpx solid #fff;
+}
+
+.name {
+  font-size: 29rpx;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-bottom: 8rpx;
+}
+.owned .name { color: var(--text); }
+
+.desc {
+  font-size: 23rpx;
+  color: var(--text-3);
+  line-height: 1.5;
+  min-height: 68rpx;
+}
+.owned .desc { color: var(--text-2); }
+
+.tip {
+  margin-top: 14rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid var(--line);
+  font-size: 21rpx;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.owned .tip { color: var(--brand); }
+
+.foot {
+  margin-top: 36rpx;
+  padding: 0 8rpx;
+  line-height: 1.7;
+}

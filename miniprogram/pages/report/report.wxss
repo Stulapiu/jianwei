@@ -1,0 +1,194 @@
+.page {
+  padding-top: 32rpx;
+  padding-bottom: 48rpx;
+}
+
+/* ---------- 分区 ---------- */
+.section {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 28rpx 28rpx 32rpx;
+  margin-bottom: 20rpx;
+}
+.label {
+  font-size: 26rpx;
+  color: var(--text-2);
+  margin-bottom: 20rpx;
+}
+
+/* ---------- 照片 ---------- */
+.photos {
+  display: flex;
+  gap: 18rpx;
+  flex-wrap: wrap;
+}
+.photo {
+  position: relative;
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: #F1F5F4;
+}
+.photo-img { width: 100%; height: 100%; }
+.photo-del {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 36rpx;
+  text-align: center;
+  background: rgba(26, 38, 36, 0.55);
+  color: #fff;
+  font-size: 26rpx;
+  border-bottom-left-radius: 16rpx;
+}
+.photo.add {
+  border: 1rpx dashed #C9D6D4;
+  background: #FAFCFC;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  transition: transform 320ms var(--spring), background 160ms var(--ease);
+}
+.photo.add:active { transform: scale(0.95); background: #F1F5F4; }
+.add-plus {
+  font-size: 44rpx;
+  color: #B9C9C6;
+  line-height: 1;
+}
+.photo-tip { margin-top: 18rpx; }
+
+/* ---------- 类型 ---------- */
+.types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.type {
+  padding: 16rpx 32rpx;
+  border-radius: 36rpx;
+  background: #F4F7F6;
+  color: var(--text-2);
+  font-size: 27rpx;
+  transition: all 200ms var(--ease);
+}
+.type.on {
+  background: var(--brand);
+  color: #fff;
+  transform: translateY(-2rpx);
+}
+
+/* ---------- 位置 ---------- */
+.loc-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  border-bottom: 1rpx solid var(--line);
+  padding-bottom: 14rpx;
+}
+.loc-input {
+  flex: 1;
+  font-size: 28rpx;
+  color: var(--text);
+  min-width: 0;
+}
+.loc-btn {
+  font-size: 26rpx;
+  color: var(--brand);
+  padding: 6rpx 16rpx;
+  border-radius: 24rpx;
+  background: var(--brand-light);
+}
+.ph { color: var(--text-3); }
+
+/* ---------- 描述 ---------- */
+.desc {
+  width: 100%;
+  min-height: 140rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: var(--text);
+}
+.desc-tip { margin-top: 12rpx; }
+
+/* ---------- 底部 ---------- */
+.footer {
+  margin-top: 40rpx;
+}
+.foot-hint {
+  text-align: center;
+  margin-top: 18rpx;
+}
+
+/* ---------- AI 分析遮罩 ---------- */
+.mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 32, 30, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 220ms var(--ease) both;
+}
+.mask-card {
+  width: 520rpx;
+  padding: 56rpx 40rpx 44rpx;
+  border-radius: 32rpx;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: pop 420ms var(--spring) both;
+}
+.pulse {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  background: var(--brand-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: breathe 1.8s var(--ease) infinite;
+}
+.pulse-core {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.mask-title {
+  margin-top: 32rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--text);
+}
+.mask-step {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: var(--text-2);
+  height: 36rpx;
+}
+.mask-bar {
+  margin-top: 36rpx;
+  width: 100%;
+  height: 6rpx;
+  border-radius: 3rpx;
+  background: #EEF3F2;
+  overflow: hidden;
+}
+.mask-bar-in {
+  width: 40%;
+  height: 100%;
+  border-radius: 3rpx;
+  background: var(--brand);
+  animation: slideBar 1.4s var(--ease) infinite;
+}
+@keyframes slideBar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(280%); }
+}

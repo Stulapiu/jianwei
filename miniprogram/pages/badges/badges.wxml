@@ -1,0 +1,28 @@
+<view class="page">
+
+  <view class="head anim">
+    <view class="h1">徽章墙</view>
+    <view class="muted">已点亮 {{ownedCount}} / {{list.length}}　·　真实上报才会点亮，刷不出来</view>
+  </view>
+
+  <view class="grid">
+    <view
+      class="badge-card {{item.owned ? 'owned' : ''}} anim"
+      wx:for="{{list}}"
+      wx:key="code"
+    >
+      <view class="icon-wrap">
+        <view class="icon">{{item.icon}}</view>
+        <view class="lock" wx:if="{{!item.owned}}"></view>
+      </view>
+      <view class="name">{{item.name}}</view>
+      <view class="desc">{{item.desc}}</view>
+      <view class="tip">{{item.owned ? '已获得' : item.tip}}</view>
+    </view>
+  </view>
+
+  <view class="foot">
+    <view class="hint">徽章只做激励，不影响你的上报权限。信用分低于 60 才会触发人工复核。</view>
+  </view>
+
+</view>

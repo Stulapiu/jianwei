@@ -1,0 +1,69 @@
+<view class="page">
+
+  <view class="head anim">
+    <view class="h1">见微</view>
+    <view class="muted sub">看见问题，就是解决的一半</view>
+  </view>
+
+  <view class="stat-row anim d1">
+    <view class="stat">
+      <view class="num">{{counts.pending}}</view>
+      <view class="hint">处待处理</view>
+    </view>
+    <view class="stat">
+      <view class="num green">{{counts.resolved}}</view>
+      <view class="hint">处已解决</view>
+    </view>
+    <view class="grow"></view>
+    <view class="hint tap-tip">点击地图上的点<br/>查看详情</view>
+  </view>
+
+  <view class="map-wrap anim d2">
+    <map
+      id="map"
+      class="map"
+      latitude="{{lat}}"
+      longitude="{{lng}}"
+      scale="{{scale}}"
+      markers="{{markers}}"
+      show-location
+      enable-3D="{{false}}"
+      bindmarkertap="onMarkerTap"
+    ></map>
+    <view class="map-loading" wx:if="{{loading}}">正在读取点位…</view>
+    <view class="map-legend">
+      <view class="lg"><view class="lg-dot" style="background:#E24B4A"></view>待处理</view>
+      <view class="lg"><view class="lg-dot" style="background:#4C9A6A"></view>已解决</view>
+    </view>
+  </view>
+
+  <view class="layer anim d3">
+    <view
+      class="chip {{layer === 'pending' ? 'on' : ''}}"
+      data-layer="pending"
+      bindtap="switchLayer"
+    >待处理 {{counts.pending}}</view>
+    <view
+      class="chip {{layer === 'resolved' ? 'on' : ''}}"
+      data-layer="resolved"
+      bindtap="switchLayer"
+    >已解决 {{counts.resolved}}</view>
+    <view class="grow"></view>
+    <view class="locate" bindtap="recenter">回到我的位置</view>
+  </view>
+
+  <view class="tip-card anim" wx:if="{{tip}}">
+    <view class="tip-dot" style="background: {{tipColor}}"></view>
+    <view class="grow">
+      <view class="tip-title">{{tip.title}}</view>
+      <view class="hint">{{tip.sub}}</view>
+    </view>
+    <view class="tip-close" bindtap="closeTip">×</view>
+  </view>
+
+  <view class="footer">
+    <view class="btn-primary" hover-class="pressed" bindtap="goReport">一键上报</view>
+    <view class="hint foot-hint">拍照 30 秒完成，AI 帮你把话说到点上</view>
+  </view>
+
+</view>

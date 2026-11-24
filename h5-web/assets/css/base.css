@@ -1,0 +1,382 @@
+/* ============================================================
+   见微 · 校园微治理  设计系统
+   青绿 #2B7A78 / 暖白 #F7F9F9 / 墨 #16211F
+   ------------------------------------------------------------
+   这里是唯一需要改配色的地方。app.css 只引用变量，不写死颜色。
+   令牌分四组：色彩、圆角、阴影、动效曲线。
+   ============================================================ */
+
+:root {
+  /* ---------- 色彩 ---------- */
+  --brand:        #2B7A78;
+  --brand-deep:   #1F5C5A;
+  --brand-soft:   #5FA3A1;
+  --brand-light:  #E6F0EF;   /* 标签底、浅色块 */
+  --brand-tint:   #F2F7F6;   /* 最浅的填充 */
+
+  --bg:           #F7F9F9;
+  --card:         #FFFFFF;
+
+  --text:         #16211F;
+  --text-2:       #61716F;
+  --text-3:       #93A2A0;
+
+  --line:         #E4EBE9;
+  --line-2:       #EFF4F3;
+
+  /* 语义色：每个都配一个浅底，避免用同一种颜色加透明度去糊 */
+  --danger:       #D9483F;
+  --danger-bg:    #FBECEB;
+  --warn:         #C97E15;
+  --warn-bg:      #FBF1DC;
+  --ok:           #3E8A5F;
+  --ok-bg:        #E8F2EC;
+  --review:       #6B7C8A;
+  --review-bg:    #EEF1F3;
+
+  /* ---------- 圆角 ---------- */
+  --r-s:  10px;
+  --r-m:  14px;
+  --r-l:  20px;
+  --r-xl: 28px;
+
+  /* ---------- 阴影：三档，够用 ---------- */
+  --sh-s: 0 1px 2px rgba(15, 40, 38, .05);
+  --sh-m: 0 10px 30px -14px rgba(15, 40, 38, .18);
+  --sh-l: 0 30px 70px -34px rgba(15, 40, 38, .40);
+
+  /* ---------- 动效 ---------- */
+  --spring: cubic-bezier(.34, 1.56, .64, 1);  /* 有回弹，按压手感 */
+  --ease:   cubic-bezier(.22, .61, .36, 1);   /* 干脆，不拖 */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);    /* 长距离入场 */
+
+  --font: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei",
+          "Source Han Sans SC", "Noto Sans SC", -apple-system, sans-serif;
+  --font-num: "Bahnschrift", "DIN Alternate", "Optima", "Segoe UI", var(--font);
+}
+
+/* ---------------- reset ---------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, p, figure { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+button { font-family: inherit; font-size: inherit; cursor: pointer; }
+img, svg { display: block; max-width: 100%; }
+input, textarea { font-family: inherit; }
+
+::selection { background: var(--brand-light); color: var(--brand-deep); }
+
+/* 细滚动条：默认那种粗条会破坏留白 */
+* { scrollbar-width: thin; scrollbar-color: #D3DEDC transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background: #D3DEDC; border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: #BCCAC8; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------- 排版 ---------------- */
+.eyebrow {                       /* 小号标题，靠字距撑气势 */
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.h1 { font-size: 25px; font-weight: 600; letter-spacing: -.4px; line-height: 1.3; }
+.h2 { font-size: 19px; font-weight: 600; letter-spacing: -.2px; line-height: 1.4; }
+.h3 { font-size: 15px; font-weight: 600; }
+.body { font-size: 14.5px; }
+.muted { font-size: 13px; color: var(--text-2); line-height: 1.65; }
+.hint  { font-size: 12px; color: var(--text-3); line-height: 1.6; }
+
+.num {                           /* 数字等宽，列表里的分数不会抖 */
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------- 按钮 ---------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0 20px;
+  height: 50px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  /* 回弹靠这条曲线，比 linear 自然 */
+  transition: transform .34s var(--spring), background .18s var(--ease),
+              color .18s var(--ease), box-shadow .18s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.btn:active { transform: scale(.955); }
+.btn svg { flex: none; }
+
+.btn--primary {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 8px 20px -12px rgba(43, 122, 120, .8);
+}
+.btn--primary:active { background: var(--brand-deep); }
+.btn--primary:disabled,
+.btn--primary[aria-disabled="true"] {
+  background: #C6D4D2;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn--ghost {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-weight: 500;
+}
+.btn--ghost:active { background: var(--brand-tint); }
+
+.btn--text {
+  height: 40px;
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 13.5px;
+}
+.btn--text:active { color: var(--text-2); }
+
+.btn--block { display: flex; width: 100%; }
+
+/* ---------------- 卡片 ---------------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-l);
+  box-shadow: var(--sh-s);
+}
+
+/* ---------------- 标签 ---------------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.tag--ai    { background: var(--brand-light); color: var(--brand-deep); }
+.tag--warn  { background: var(--warn-bg);     color: var(--warn); }
+.tag--ok    { background: var(--ok-bg);       color: var(--ok); }
+.tag--danger{ background: var(--danger-bg);   color: var(--danger); }
+.tag--review{ background: var(--review-bg);   color: var(--review); }
+
+/* ---------------- 表单 ---------------- */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--card);
+  transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.field:focus-within {
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 0 3px rgba(43, 122, 120, .10);
+}
+.field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text);
+}
+.field input::placeholder { color: var(--text-3); }
+
+.textarea {
+  width: 100%;
+  min-height: 78px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+  resize: none;
+  outline: 0;
+  transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.textarea:focus {
+  border-color: var(--brand-soft);
+  box-shadow: 0 0 0 3px rgba(43, 122, 120, .10);
+}
+.textarea::placeholder { color: var(--text-3); }
+
+/* ---------------- 开关式 chip ---------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all .2s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.chip:active { transform: scale(.96); }
+.chip.on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  box-shadow: 0 6px 16px -10px rgba(43, 122, 120, .9);
+}
+.chip .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; opacity: .5;
+}
+.chip.on .dot { opacity: 1; }
+
+/* ---------------- Toast ---------------- */
+.toast-wrap {
+  /* 相对手机画布定位，这样桌面预览时不会跑偏到浏览器底部 */
+  position: absolute;
+  left: 50%;
+  bottom: 108px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 9000;
+  pointer-events: none;
+  /* 保证 toast 跟随手机视口，而不是整个浏览器窗口 */
+  margin-left: auto;
+  margin-right: auto;
+}
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 300px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(22, 33, 31, .92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: var(--sh-m);
+  backdrop-filter: blur(8px);
+  animation: toastIn .32s var(--spring) backwards;
+}
+.toast.out { animation: toastOut .26s var(--ease) both; }
+.toast--ok  { background: rgba(38, 96, 66, .95); }
+.toast--err { background: rgba(140, 44, 40, .95); }
+.toast svg { flex: none; }
+
+@keyframes toastIn  { from { opacity: 0; transform: translateY(10px) scale(.94); } }
+@keyframes toastOut { to   { opacity: 0; transform: translateY(-6px) scale(.97); } }
+
+/* ---------------- 遮罩 / 底部弹层 ---------------- */
+.mask {
+  position: absolute;
+  inset: 0;
+  z-index: 800;
+  background: rgba(13, 26, 24, .34);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-end;
+  animation: fadeIn .22s var(--ease) backwards;
+}
+.mask.is-out { animation: fadeOut .2s var(--ease) both; }
+
+.sheet {
+  width: 100%;
+  background: var(--card);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: 8px 20px 24px;
+  box-shadow: 0 -20px 50px -30px rgba(15, 40, 38, .5);
+  animation: sheetUp .42s var(--ease-out) backwards;
+}
+.sheet::before {              /* 顶部小横条，暗示可下拉 */
+  content: "";
+  display: block;
+  width: 34px; height: 4px;
+  margin: 0 auto 14px;
+  border-radius: 4px;
+  background: var(--line);
+}
+.sheet.is-out { animation: sheetDown .24s var(--ease) both; }
+
+@keyframes fadeIn   { from { opacity: 0; } }
+@keyframes fadeOut  { to   { opacity: 0; } }
+@keyframes sheetUp   { from { transform: translateY(24px); opacity: .6; } }
+@keyframes sheetDown { to   { transform: translateY(100%); } }
+
+/* ---------------- 通用动画 ---------------- */
+/* 注意：keyframes 只写 from，不写 to。
+   这样元素的「默认样式」就是最终状态，动画只负责把它从偏移处带回来。
+   好处是动画被打断、被系统禁用、或截图时机不对时，不会卡在 opacity:.4 那种
+   半透明中间态 —— 这是用 both 最容易踩的坑。 */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+}
+@keyframes pop {
+  0%   { transform: scale(.5); opacity: 0; }
+  62%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.05); opacity: .72; }
+}
+
+/* 入场：用 --d 序号控制先后，改顺序不用改 CSS */
+.reveal {
+  animation: fadeUp .58s var(--ease-out) backwards;
+  animation-delay: calc(var(--d, 0) * 55ms);
+}
+
+/* 尊重系统「减少动态效果」设置：不是可选项，是必须项 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,92 @@
+<view class="page">
+
+  <view class="section anim">
+    <view class="label">现场照片</view>
+    <view class="photos">
+      <view class="photo" wx:for="{{files}}" wx:key="index">
+        <image
+          class="photo-img"
+          src="{{item}}"
+          mode="aspectFill"
+          data-src="{{item}}"
+          bindtap="previewImage"
+        />
+        <view class="photo-del" data-index="{{index}}" catchtap="removeImage">×</view>
+      </view>
+
+      <view class="photo add" wx:if="{{files.length < maxPhotos}}" bindtap="chooseImage">
+        <view class="add-plus">＋</view>
+        <view class="hint">拍照 / 相册</view>
+      </view>
+    </view>
+    <view class="hint photo-tip">拍清楚设施本身，AI 更容易判断</view>
+  </view>
+
+  <view class="section anim d1">
+    <view class="label">问题类型</view>
+    <view class="types">
+      <view
+        class="type {{type === item.key ? 'on' : ''}}"
+        wx:for="{{types}}"
+        wx:key="key"
+        data-key="{{item.key}}"
+        bindtap="pickType"
+      >{{item.label}}</view>
+    </view>
+  </view>
+
+  <view class="section anim d2">
+    <view class="label">位置</view>
+    <view class="loc-row">
+      <input
+        class="loc-input"
+        value="{{address}}"
+        placeholder="自动定位，也可手动填写"
+        placeholder-class="ph"
+        bindinput="onAddressInput"
+      />
+      <view class="loc-btn" bindtap="fixLocation">修正</view>
+    </view>
+    <view class="hint" wx:if="{{lat}}">
+      坐标 {{lat}}, {{lng}} · 展示时自动模糊到约 100 米
+    </view>
+  </view>
+
+  <view class="section anim d3">
+    <view class="between">
+      <view class="label">补充描述</view>
+      <view class="hint">{{desc.length}} / 100</view>
+    </view>
+    <textarea
+      wx:if="{{!analyzing}}"
+      class="desc"
+      value="{{desc}}"
+      placeholder="说说具体情况，例如「这盏灯闪了三天」「垃圾已经堆到路上了」"
+      placeholder-class="ph"
+      maxlength="100"
+      auto-height
+      bindinput="onDescInput"
+    />
+    <view class="hint desc-tip">不用写得很正式，AI 会帮你整理成工单</view>
+  </view>
+
+  <view class="footer">
+    <view
+      class="btn-primary {{canSubmit ? '' : 'disabled'}}"
+      hover-class="{{canSubmit ? 'pressed' : ''}}"
+      bindtap="submit"
+    >提交上报</view>
+    <view class="hint foot-hint">所有 AI 判断仅供参考，最终以人工复核为准</view>
+  </view>
+
+</view>
+
+<!-- AI 分析遮罩 -->
+<view class="mask" wx:if="{{analyzing}}">
+  <view class="mask-card">
+    <view class="pulse"><view class="pulse-core"></view></view>
+    <view class="mask-title">AI 哨兵正在看</view>
+    <view class="mask-step">{{stepText}}</view>
+    <view class="mask-bar"><view class="mask-bar-in"></view></view>
+  </view>
+</view>

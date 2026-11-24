@@ -1,0 +1,37 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/report/report",
+    "pages/result/result",
+    "pages/my-reports/my-reports",
+    "pages/profile/profile",
+    "pages/badges/badges"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#F7F9F9",
+    "navigationBarTitleText": "见微",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F7F9F9"
+  },
+  "tabBar": {
+    "color": "#9AA8A6",
+    "selectedColor": "#2B7A78",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "地图" },
+      { "pagePath": "pages/my-reports/my-reports", "text": "我的上报" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于确定公共设施问题的位置，坐标会做模糊处理后才展示"
+    }
+  },
+  "requiredPrivateInfos": ["getLocation", "chooseLocation"],
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

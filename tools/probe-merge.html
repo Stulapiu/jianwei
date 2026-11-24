@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>合并判定诊断</title></head>
+<body style="font:13px monospace;padding:20px">
+<pre id="out">运行中…</pre>
+<script src="../shared/tilemap.js"></script>
+<script src="../shared/domain.js"></script>
+<script src="../shared/agent.js"></script>
+<script src="../h5-web/assets/js/data.js"></script>
+<script>
+var lines = [];
+function log(s) { lines.push(s); }
+
+var sc = DATA.SCENES.filter(function (s) { return s.key === 'normal'; })[0];
+log('场景坐标: ' + sc.lng + ', ' + sc.lat + '  type=' + sc.type);
+log('半径: ' + Domain.MERGE.radius);
+log('点位总数: ' + DATA.POINTS.length);
+
+var p1 = DATA.POINTS.filter(function (p) { return p.id === 'p1'; })[0];
+log('p1: ' + (p1 ? p1.lng + ',' + p1.lat + ' ' + p1.type + ' ' + p1.status + ' by=' + p1.by : '未找到'));
+
+if (p1) {
+  log('距离: ' + TileMap.distance(sc.lng, sc.lat, p1.lng, p1.lat).toFixed(2) + ' 米');
+}
+
+var near = DATA.findNearby(sc.lng, sc.lat, sc.type, DATA.POINTS);
+log('findNearby 命中: ' + near.length + ' 个 -> ' + near.map(function (p) { return p.id; }).join(','));
+
+log('USER.initial = ' + DATA.USER.initial);
+
+document.getElementById('out').textContent = lines.join('\n');
+document.body.setAttribute('data-done', lines.join(' | '));
+</script>
+</body></html>

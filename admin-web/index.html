@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>见微 · 管理后台</title>
+<meta name="description" content="见微 · 校园微治理 —— 基于 AI 降噪的众包式公共设施微治理平台，管理后台">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232B7A78'/%3E%3Cpath d='M16 6l9 3.4v7c0 5.6-3.7 9.4-9 11.2-5.3-1.8-9-5.6-9-11.2v-7L16 6Z' stroke='%23fff' stroke-width='2' fill='none' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='15' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../shared/tilemap.css">
+<link rel="stylesheet" href="assets/admin.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ==================== 侧边栏 ==================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linejoin="round">
+          <path d="M12 3l7.5 2.8v5.9c0 4.7-3.1 7.9-7.5 9.4-4.4-1.5-7.5-4.7-7.5-9.4V5.8L12 3Z"/>
+          <circle cx="12" cy="11" r="2.1" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-name">见微</div>
+        <div class="brand-sub">郑州大学主校区</div>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-view="dashboard">
+        <span class="nav-ico">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7.5" height="8.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/>
+            <rect x="3" y="14.5" width="7.5" height="6.5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/>
+          </svg>
+        </span>
+        <span class="nav-label">总览看板</span>
+      </button>
+
+      <button class="nav-item" data-view="orders">
+        <span class="nav-ico">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19.5" cy="18" r="2.2"/>
+          </svg>
+        </span>
+        <span class="nav-label">工单管理</span>
+        <span class="nav-badge" id="navBadgeOrders">0</span>
+      </button>
+
+      <button class="nav-item" data-view="dispatch">
+        <span class="nav-ico">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/>
+            <path d="M10 7h5a2 2 0 012 2v5"/>
+          </svg>
+        </span>
+        <span class="nav-label">部门派单</span>
+      </button>
+
+      <button class="nav-item" data-view="insight">
+        <span class="nav-ico">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6.5 6.5 0 00-3.9 11.7V18h7.8v-3.3A6.5 6.5 0 0012 3Z"/>
+            <path d="M9.8 21h4.4"/>
+          </svg>
+        </span>
+        <span class="nav-label">AI 决策</span>
+      </button>
+    </nav>
+
+    <div class="side-brief">
+      <div class="side-brief-title">本周速览</div>
+      <div class="sb-row"><span>待处理</span><b class="num" id="sbPending">0</b></div>
+      <div class="sb-row"><span>P0 紧急</span><b class="num danger" id="sbP0">0</b></div>
+      <div class="sb-row"><span>已合并</span><b class="num" id="sbMerged">0</b></div>
+    </div>
+
+    <div class="side-foot">
+      <div class="env">
+        <span class="env-dot"></span>
+        <span class="side-foot-text">演示数据 · 本地运行</span>
+      </div>
+    </div>
+
+    <button class="collapse-btn" id="btnCollapse" title="收起侧边栏">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 6l-6 6 6 6"/>
+      </svg>
+    </button>
+  </aside>
+
+  <!-- ==================== 主区域 ==================== -->
+  <main>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 id="viewTitle">总览看板</h1>
+        <span class="topbar-sub" id="viewSub">郑州大学主校区 · 最近 7 天</span>
+      </div>
+
+      <div class="topbar-right">
+        <div class="search-wrap">
+          <svg class="search-ico" viewBox="0 0 24 24" width="15" height="15" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>
+          </svg>
+          <input class="search" id="search" type="text" placeholder="搜索工单号、位置、摘要" spellcheck="false">
+        </div>
+
+        <button class="btn btn-ghost" id="btnExport">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v2.5A1.5 1.5 0 005.5 21h13A1.5 1.5 0 0020 19.5V17"/>
+          </svg>
+          导出 Excel
+        </button>
+
+        <div class="avatar" title="管理员 · 后勤保障部">后</div>
+      </div>
+    </header>
+
+    <!-- ============ 视图 1：总览看板 ============ -->
+    <section class="view active" data-view="dashboard">
+
+      <div class="metrics">
+        <div class="metric glass">
+          <div class="metric-top">
+            <span class="metric-label">待处理工单</span>
+            <span class="metric-ico" data-tone="danger">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>
+            </span>
+          </div>
+          <div class="metric-value num" id="mPending">0</div>
+          <div class="metric-delta"><span class="tag-p0" id="mUrgent">0</span> 条为 P0 紧急</div>
+        </div>
+
+        <div class="metric glass">
+          <div class="metric-top">
+            <span class="metric-label">本周处理率</span>
+            <span class="metric-ico" data-tone="ok">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+            </span>
+          </div>
+          <div class="metric-value num" id="mRate">0%</div>
+          <div class="metric-delta" id="mRateSub">已完成 0 / 共 0</div>
+        </div>
+
+        <div class="metric glass">
+          <div class="metric-top">
+            <span class="metric-label">AI 拦截率</span>
+            <span class="metric-ico" data-tone="brand">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </span>
+          </div>
+          <div class="metric-value num" id="mBlock">0%</div>
+          <div class="metric-delta" id="mBlockSub">本周拦截 0 条无效信息</div>
+        </div>
+
+        <div class="metric glass">
+          <div class="metric-top">
+            <span class="metric-label">平均响应时长</span>
+            <span class="metric-ico" data-tone="warn">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+            </span>
+          </div>
+          <div class="metric-value num" id="mSla">0<small>h</small></div>
+          <div class="metric-delta" id="mSlaSub">较上周 0</div>
+        </div>
+      </div>
+
+      <div class="grid g-heat">
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">问题分布热力图</div>
+              <div class="card-sub">颜色越深表示该区域问题越密集，点击色块可下钻</div>
+            </div>
+            <div class="seg" id="heatFilter">
+              <button class="seg-btn on" data-heat="all">全部</button>
+              <button class="seg-btn" data-heat="safety">安全隐患</button>
+              <button class="seg-btn" data-heat="lighting">照明</button>
+              <button class="seg-btn" data-heat="sanitation">卫生</button>
+            </div>
+          </div>
+          <div class="heat-wrap">
+            <div class="heat-map" id="heatMap"></div>
+            <div class="heat-legend">
+              <span class="hl-bar"></span>
+              <span class="hl-labels"><i>低</i><i>高</i></span>
+            </div>
+            <div class="heat-stats">
+              <div><b id="hsTotal">0</b><span>点位</span></div>
+              <div><b id="hsTop">—</b><span>最密集区域</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">高频故障区域</div>
+              <div class="card-sub">近 7 天 · 按工单数排序</div>
+            </div>
+          </div>
+          <div class="rank" id="rankList"></div>
+        </div>
+      </div>
+
+      <div class="grid g-2-1">
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">近 7 天上报趋势</div>
+              <div class="card-sub">灰线为被 AI 拦截的无效上报</div>
+            </div>
+            <div class="chart-legend">
+              <span><i style="background:#2B7A78"></i>有效上报</span>
+              <span><i style="background:#C9D3D1"></i>被拦截</span>
+            </div>
+          </div>
+          <div class="trend" id="trendChart"></div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">类型构成</div>
+              <div class="card-sub">待处理工单的问题类型占比</div>
+            </div>
+          </div>
+          <div class="type-dist">
+            <div class="donut-wrap">
+              <svg class="donut" id="donut" viewBox="0 0 120 120"></svg>
+              <div class="donut-center">
+                <b class="num" id="donutTotal">0</b>
+                <span>待处理</span>
+              </div>
+            </div>
+            <div class="donut-legend" id="donutLegend"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 视图 2：工单管理 ============ -->
+    <section class="view" data-view="orders">
+      <div class="card glass toolbar-card">
+        <div class="toolbar">
+          <div class="filter-group" id="statusFilter">
+            <button class="filter on" data-status="all">全部</button>
+            <button class="filter" data-status="pending">待处理</button>
+            <button class="filter" data-status="processing">处理中</button>
+            <button class="filter" data-status="resolved">已完成</button>
+          </div>
+
+          <select class="select" id="typeFilter">
+            <option value="all">全部类型</option>
+          </select>
+
+          <select class="select" id="deptFilter">
+            <option value="all">全部部门</option>
+          </select>
+
+          <div class="spacer"></div>
+
+          <label class="sort-label" for="sortBy">排序</label>
+          <select class="select select-sort" id="sortBy">
+            <option value="priority">紧急度优先（默认）</option>
+            <option value="people">反馈人数优先</option>
+            <option value="newest">最新上报在前</option>
+            <option value="oldest">最早上报在前</option>
+            <option value="dept">按负责部门分组</option>
+          </select>
+        </div>
+
+        <div class="toolbar-meta">
+          <span id="ordersCount">0 条工单</span>
+          <span class="dot-sep">·</span>
+          <span id="mergeCount">0 组已合并</span>
+          <span class="spacer"></span>
+          <span class="hint-inline">同人重复上报自动并入；多人报同一处会抬升优先级</span>
+        </div>
+      </div>
+
+      <div class="card glass table-card">
+        <div class="table-scroll">
+          <table class="orders">
+            <thead>
+              <tr>
+                <th style="width:56px">现场</th>
+                <th style="width:190px">工单 / 位置</th>
+                <th style="width:112px">类型</th>
+                <th style="width:150px">负责部门</th>
+                <th style="width:104px">优先级</th>
+                <th style="width:128px">上报人</th>
+                <th style="width:96px">状态</th>
+                <th style="width:158px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="orderBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 视图 3：部门派单 ============ -->
+    <section class="view" data-view="dispatch">
+      <div class="dept-grid" id="deptGrid"></div>
+    </section>
+
+    <!-- ============ 视图 4：AI 决策 ============ -->
+    <section class="view" data-view="insight">
+      <div class="ai-block glass">
+        <div class="ai-head">
+          <div>
+            <h3>一键生成周报</h3>
+            <p>把本周的拦截数、处理率、高频区域汇总成一段可直接发到工作群的管理层简报。</p>
+          </div>
+          <button class="btn btn-primary" id="btnWeekly">生成周报</button>
+        </div>
+        <div class="ai-output empty" id="outWeekly">点击「生成周报」，产出一段 200 字左右的简报。</div>
+        <div class="ai-foot">
+          <button class="btn btn-ghost" id="btnCopy">复制文本</button>
+          <span class="ai-tag">AI 生成 · 建议人工核对后使用</span>
+        </div>
+      </div>
+
+      <div class="ai-block glass">
+        <div class="ai-head">
+          <div>
+            <h3>AI 哨兵巡逻</h3>
+            <p>从被动等报修转向主动巡查。基于历史高频故障点，生成下一条重点巡查路线。</p>
+          </div>
+          <button class="btn btn-primary" id="btnPatrol">模拟巡逻</button>
+        </div>
+        <div class="ai-output empty" id="outPatrol">点击「模拟巡逻」，系统会结合高频点位给出路线建议。</div>
+        <div class="route" id="routeBox"></div>
+      </div>
+
+      <div class="ai-block glass">
+        <div class="ai-head">
+          <div>
+            <h3>同类工单合并建议</h3>
+            <p>自动识别同一区域、同一类型的多条工单，建议合并为一次集中检修，减少重复跑腿。</p>
+          </div>
+          <button class="btn btn-ghost" id="btnMergeAi">重新分析</button>
+        </div>
+        <div id="mergeBox"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 工单详情抽屉 -->
+<div class="drawer-mask" id="drawerMask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title" id="drawerTitle">工单详情</div>
+      <div class="drawer-sub" id="drawerSub"></div>
+    </div>
+    <button class="icon-btn" id="drawerClose" aria-label="关闭">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<script src="../shared/tilemap.js"></script>
+<script src="../shared/domain.js"></script>
+<script src="assets/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<view class="page">
+
+  <view class="head anim">
+    <view class="avatar">{{initial}}</view>
+    <view class="grow">
+      <view class="h2">{{p.nickName || '热心居民'}}</view>
+      <view class="hint">{{p.streak > 0 ? p.streak + ' 天连续上报' : '今天还没上报'}}</view>
+    </view>
+  </view>
+
+  <view class="credit-card anim d1">
+    <view class="between">
+      <view>
+        <view class="hint">信用分</view>
+        <view class="credit-num">{{p.credit}}</view>
+      </view>
+      <view class="credit-tag">{{creditLabel}}</view>
+    </view>
+    <view class="bar">
+      <view class="bar-in" style="width: {{p.credit}}%"></view>
+    </view>
+    <view class="hint credit-note">有效上报 +2 · 无效提交 -1 · 满 100 分可兑换文创</view>
+  </view>
+
+  <view class="stat-row anim d2">
+    <view class="stat">
+      <view class="n">{{p.validCnt}}</view>
+      <view class="hint">有效上报</view>
+    </view>
+    <view class="stat">
+      <view class="n green">{{p.resolvedCnt}}</view>
+      <view class="hint">已解决</view>
+    </view>
+    <view class="stat">
+      <view class="n">{{p.invalidCnt}}</view>
+      <view class="hint">无效提交</view>
+    </view>
+  </view>
+
+  <view class="card anim d3">
+    <view class="between">
+      <view class="h3">我的徽章</view>
+      <view class="hint link" bindtap="goBadges">全部 ›</view>
+    </view>
+
+    <view class="badge-row" wx:if="{{ownedBadges.length}}">
+      <view class="badge" wx:for="{{ownedBadges}}" wx:key="code">
+        <view class="badge-icon">{{item.icon}}</view>
+        <view class="badge-name">{{item.name}}</view>
+      </view>
+    </view>
+
+    <view class="badge-empty" wx:else>
+      还没有徽章。第一次有效上报就能拿到「初次出勤」。
+    </view>
+  </view>
+
+  <view class="menu anim d4">
+    <view class="menu-item" bindtap="goMine">
+      <text>我的上报</text>
+      <text class="arrow">›</text>
+    </view>
+    <view class="menu-item" bindtap="goBadges">
+      <text>徽章墙</text>
+      <text class="arrow">›</text>
+    </view>
+    <view class="menu-item" bindtap="exchange">
+      <text>积分兑换</text>
+      <text class="arrow">›</text>
+    </view>
+  </view>
+
+</view>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>图像指标诊断 · 见微</title>
+<style>
+  body { font: 13px/1.6 -apple-system, "PingFang SC", system-ui, sans-serif;
+         margin: 0; padding: 24px; background: #F7F9F9; color: #17302E; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .sub { color: #6B8380; font-size: 12px; margin-bottom: 20px; }
+  table { border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden;
+          box-shadow: 0 12px 30px -22px rgba(20,60,56,.5); }
+  th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid #EDF3F2; font-size: 12.5px; }
+  th { background: #F4F9F8; font-weight: 600; font-size: 12px; color: #4A6563; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .bad { color: #C0392B; font-weight: 600; }
+  .ok { color: #2B7A78; font-weight: 600; }
+  .th { display: flex; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  .th figure { margin: 0; text-align: center; }
+  .th img { width: 132px; height: 99px; border-radius: 8px; border: 1px solid #E2ECEA; }
+  .th figcaption { font-size: 11px; color: #6B8380; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>演示照片 · 图像指标诊断</h1>
+<div class="sub">用真实算法跑一遍每种样例图，确认闸门的阈值能分开「拍糊的」和「拍清楚的」</div>
+
+<div class="th" id="thumbs"></div>
+<div id="out">分析中…</div>
+
+<script src="../shared/tilemap.js"></script>
+<script src="../shared/domain.js"></script>
+<script src="../shared/agent.js"></script>
+<script src="../h5-web/assets/js/data.js"></script>
+<script>
+(function () {
+  const kinds = ['trash', 'lamp', 'pothole', 'scenery', 'blur', 'puddle'];
+
+  // 缩略图
+  document.getElementById('thumbs').innerHTML = kinds.map(function (k) {
+    return '<figure><img src="' + DATA.photoDataURI(k) + '" alt="' + k + '">' +
+           '<figcaption>' + k + '</figcaption></figure>';
+  }).join('');
+
+  const rows = [];
+
+  const g = SentinelAgent.THRESH;
+
+  (async function () {
+    for (const k of kinds) {
+      const m = await SentinelAgent.analyzeImage(DATA.photoDataURI(k));
+      // 直接跑一遍视觉闸门，看它怎么判
+      let verdict = 'pass';
+      if (m.sharpScore < g.blur) verdict = 'blur';
+      else if (m.brightness < g.dark) verdict = 'dark';
+      else if (m.brightness > g.overexposed) verdict = 'overexposed';
+      else if (m.flatRatio > g.flat && m.edgeDensity < g.flatEdge) verdict = "flat";
+
+      rows.push({ k, m, verdict });
+    }
+
+    document.getElementById('out').innerHTML =
+      '<table><thead><tr>' +
+        '<th>样例</th><th>sharpScore</th><th>亮度</th><th>饱和度</th>' +
+        '<th>平坦区</th><th>边缘密度</th><th>主导色彩</th><th>闸门判定</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr>' +
+          '<td><b>' + r.k + '</b></td>' +
+          '<td class="num' + (r.m.sharpScore < g.blur ? ' bad' : '') + '">' + r.m.sharpScore + '</td>' +
+          '<td class="num">' + r.m.brightness.toFixed(3) + '</td>' +
+          '<td class="num">' + r.m.saturation.toFixed(3) + '</td>' +
+          '<td class="num">' + r.m.flatRatio.toFixed(3) + '</td>' +
+          '<td class="num">' + r.m.edgeDensity.toFixed(3) + '</td>' +
+          '<td>' + r.m.dominant + '</td>' +
+          '<td class="' + (r.verdict === 'pass' ? 'ok' : 'bad') + '">' + r.verdict + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>' +
+      '<div class="sub" style="margin-top:14px">阈值：blur &lt; ' + g.blur +
+        ' · dark &lt; ' + g.dark + ' · overexposed &gt; ' + g.overexposed +
+        ' · flat &gt; ' + g.flat + ' 且 edge &lt; ' + g.flatEdge + '</div>';
+
+    document.body.setAttribute('data-done', JSON.stringify(rows.map(function (r) {
+      return { k: r.k, sharp: r.m.sharpScore, v: r.verdict, dom: r.m.dominant,
+               flat: r.m.flatRatio, edge: r.m.edgeDensity };
+    })));
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+/**
+ * 全局样式：设计令牌 + 通用类 + 动效
+ * ------------------------------------------------------------
+ * 改配色只需要改这里的 --brand 一组变量，所有页面自动跟随。
+ * 动效统一用同一条「弹簧曲线」，保证全站手感一致。
+ */
+
+page {
+  /* ---- 色彩 ---- */
+  --brand: #2B7A78;
+  --brand-deep: #1F5C5A;
+  --brand-light: #E6F0EF;
+  --bg: #F7F9F9;
+  --card: #FFFFFF;
+  --text: #1A2624;
+  --text-2: #6B7C7A;
+  --text-3: #9AA8A6;
+  --line: #E4EBE9;
+  --danger: #E24B4A;
+  --warn: #EF9F27;
+  --ok: #4C9A6A;
+
+  /* ---- 动效 ---- */
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 28rpx;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+view, text { box-sizing: border-box; }
+
+/* ---------- 布局 ---------- */
+.page {
+  min-height: 100vh;
+  padding: 0 32rpx 48rpx;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 24rpx;
+  padding: 32rpx;
+}
+
+.row { display: flex; align-items: center; }
+.between { display: flex; align-items: center; justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+.divider { height: 1rpx; background: var(--line); margin: 24rpx 0; }
+
+/* ---------- 字体层级 ---------- */
+.h1 { font-size: 44rpx; font-weight: 600; letter-spacing: -0.5rpx; }
+.h2 { font-size: 34rpx; font-weight: 600; }
+.h3 { font-size: 30rpx; font-weight: 600; }
+.body { font-size: 28rpx; color: var(--text); }
+.muted { font-size: 26rpx; color: var(--text-2); }
+.hint { font-size: 24rpx; color: var(--text-3); }
+.mono { font-family: "SF Mono", Menlo, monospace; }
+
+/* ---------- 按钮 ---------- */
+.btn-primary {
+  height: 96rpx;
+  border-radius: 48rpx;
+  background: var(--brand);
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 松手回弹靠这条曲线，比线性过渡自然得多 */
+  transition: transform 320ms var(--spring), background 160ms var(--ease);
+}
+.btn-primary.pressed {
+  transform: scale(0.94);
+  background: var(--brand-deep);
+}
+.btn-primary.disabled {
+  background: #C9D6D4;
+  color: #fff;
+}
+
+.btn-ghost {
+  height: 88rpx;
+  border-radius: 44rpx;
+  border: 1rpx solid var(--line);
+  background: #fff;
+  color: var(--text-2);
+  font-size: 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 320ms var(--spring), background 160ms var(--ease);
+}
+.btn-ghost.pressed { transform: scale(0.96); background: #F2F5F4; }
+
+/* ---------- AI 建议标签 ---------- */
+.tag-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  background: var(--brand-light);
+  color: var(--brand);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+.tag-ai.warn { background: #FAEEDA; color: #BA7517; }
+
+/* ---------- 动画 ---------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(28rpx); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes ripple {
+  0%   { transform: scale(0.6); opacity: 0.5; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.06); opacity: 0.7; }
+}
+
+/* 入场：页面元素逐个浮现，形成 fade + slide 的转场观感 */
+.anim { animation: fadeUp 520ms var(--ease) both; }
+.d1 { animation-delay: 60ms; }
+.d2 { animation-delay: 120ms; }
+.d3 { animation-delay: 180ms; }
+.d4 { animation-delay: 240ms; }
+
+/* ---------- 空状态 ---------- */
+.empty {
+  padding: 120rpx 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 26rpx;
+}
+.empty-dot {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: var(--brand-light);
+  margin: 0 auto 24rpx;
+}

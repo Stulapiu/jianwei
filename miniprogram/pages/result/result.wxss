@@ -1,0 +1,231 @@
+.page {
+  min-height: 100vh;
+  padding-top: 72rpx;
+  padding-bottom: 48rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 成功态头部 ---------- */
+.hero {
+  text-align: center;
+  margin-bottom: 48rpx;
+}
+.tick-wrap {
+  position: relative;
+  width: 132rpx;
+  height: 132rpx;
+  margin: 0 auto 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tick {
+  width: 116rpx;
+  height: 116rpx;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 60rpx;
+  line-height: 116rpx;
+  text-align: center;
+  animation: pop 620ms var(--spring) both;
+}
+.tick-ring {
+  position: absolute;
+  width: 116rpx;
+  height: 116rpx;
+  border-radius: 50%;
+  border: 2rpx solid var(--brand);
+  opacity: 0;
+  animation: ripple 1200ms var(--ease) 180ms 1 both;
+}
+.hero-title {
+  font-size: 44rpx;
+  font-weight: 600;
+  letter-spacing: -0.5rpx;
+  margin-bottom: 8rpx;
+}
+
+/* ---------- 信息卡 ---------- */
+.info { padding: 8rpx 32rpx 32rpx; }
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 0;
+  gap: 24rpx;
+}
+.val {
+  font-size: 28rpx;
+  color: var(--text);
+  text-align: right;
+  max-width: 62%;
+}
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stars {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.star {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #E4EBE9;
+}
+.star.on { background: var(--brand); }
+.star-num {
+  font-size: 24rpx;
+  color: var(--text-2);
+  margin-left: 6rpx;
+}
+
+.ai-block { padding-top: 4rpx; }
+.ai-text {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  color: var(--text);
+  line-height: 1.65;
+}
+.ai-advice {
+  margin-top: 14rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  background: #F4F7F6;
+  font-size: 26rpx;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+/* ---------- 合并提示 ---------- */
+.merge-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 20rpx;
+  padding: 26rpx 28rpx;
+  border-radius: 24rpx;
+  background: var(--brand-light);
+}
+.merge-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--brand);
+  font-size: 26rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.merge-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--brand-deep);
+}
+
+/* ---------- 徽章 ---------- */
+.badge-card {
+  margin-top: 20rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
+  background: #fff;
+}
+.badge-list {
+  display: flex;
+  gap: 28rpx;
+  margin-top: 20rpx;
+}
+.badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  animation: pop 520ms var(--spring) 200ms both;
+}
+.badge-icon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: #FAEEDA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+}
+.badge-name {
+  font-size: 22rpx;
+  color: var(--text-2);
+}
+
+/* ---------- 拦截态 ---------- */
+.reject .hero { margin-top: 40rpx; }
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 12rpx;
+  margin-bottom: 40rpx;
+}
+.dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #EF9F27;
+  opacity: 0.35;
+  animation: dotJump 1.4s var(--ease) infinite;
+}
+.d-b { animation-delay: 160ms; }
+.d-c { animation-delay: 320ms; }
+@keyframes dotJump {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30%           { transform: translateY(-10rpx); opacity: 1; }
+}
+
+.reject-title {
+  font-size: 38rpx;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 24rpx;
+  margin-bottom: 20rpx;
+}
+.reject-sub {
+  padding: 0 32rpx;
+  line-height: 1.65;
+}
+
+.reject-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 12rpx 32rpx 32rpx;
+}
+.reject-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 0;
+}
+
+/* ---------- 底部 ---------- */
+.footer {
+  margin-top: auto;
+  padding-top: 48rpx;
+}
+.btn-text {
+  text-align: center;
+  margin-top: 26rpx;
+  font-size: 27rpx;
+  color: var(--brand);
+  padding: 12rpx;
+}
+.btn-text.dim { color: var(--text-3); }
+.foot-hint {
+  text-align: center;
+  margin-top: 20rpx;
+}

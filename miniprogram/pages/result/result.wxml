@@ -1,0 +1,101 @@
+<!-- ============ 提交成功 ============ -->
+<view class="page" wx:if="{{r.ok}}">
+
+  <view class="hero">
+    <view class="tick-wrap">
+      <view class="tick-ring"></view>
+      <view class="tick">✓</view>
+    </view>
+    <view class="hero-title">已经收到</view>
+    <view class="muted">谢谢你替这条街多看一眼</view>
+  </view>
+
+  <view class="card info anim d1">
+    <view class="info-row">
+      <text class="muted">问题类型</text>
+      <text class="val">{{typeLabel}}</text>
+    </view>
+    <view class="info-row">
+      <text class="muted">位置</text>
+      <text class="val ellipsis">{{r.address || '已记录坐标'}}</text>
+    </view>
+    <view class="info-row">
+      <text class="muted">紧急度</text>
+      <view class="stars">
+        <view class="star {{item <= severity ? 'on' : ''}}" wx:for="{{[1,2,3,4,5]}}" wx:key="*this"></view>
+        <text class="star-num">{{severity}} / 5</text>
+      </view>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="ai-block">
+      <view class="tag-ai">AI 建议 · 仅供参考</view>
+      <view class="ai-text">{{r.verdict.summary || '设施存在异常，需要现场核查'}}</view>
+      <view class="ai-advice" wx:if="{{r.verdict.advice}}">{{r.verdict.advice}}</view>
+    </view>
+  </view>
+
+  <view class="merge-card anim d2" wx:if="{{r.merged}}">
+    <view class="merge-icon">＋{{r.mergeCnt}}</view>
+    <view class="grow">
+      <view class="merge-title">附近已有人上报过这里</view>
+      <view class="hint">你的上报已合并进同一张工单，紧急度自动提升</view>
+    </view>
+  </view>
+
+  <view class="badge-card anim d3" wx:if="{{r.newBadges.length}}">
+    <view class="hint">获得新徽章</view>
+    <view class="badge-list">
+      <view class="badge" wx:for="{{r.newBadges}}" wx:key="code">
+        <view class="badge-icon">{{item.icon}}</view>
+        <view class="badge-name">{{item.name}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="footer">
+    <view class="btn-primary" hover-class="pressed" bindtap="goMine">看看我的上报</view>
+    <view class="btn-text" bindtap="goHome">回到地图</view>
+  </view>
+
+</view>
+
+<!-- ============ 被 AI 拦下 ============ -->
+<view class="page reject" wx:else>
+
+  <view class="hero">
+    <view class="dots">
+      <view class="dot d-a"></view>
+      <view class="dot d-b"></view>
+      <view class="dot d-c"></view>
+    </view>
+    <view class="reject-title">{{r.verdict.message || '这张照片我们没太看清'}}</view>
+    <view class="muted reject-sub">{{reasonHint}}</view>
+  </view>
+
+  <view class="reject-card anim d1">
+    <view class="reject-row">
+      <text class="muted">判定原因</text>
+      <text class="val">{{r.verdict.reason === 'blur' ? '画面不够清晰' : r.verdict.reason === 'not_facility' ? '未识别到公共设施' : r.verdict.reason === 'type_mismatch' ? '描述与类型不一致' : '照片信息不足'}}</text>
+    </view>
+    <view class="reject-row">
+      <text class="muted">已选类型</text>
+      <text class="val">{{typeLabel}}</text>
+    </view>
+    <view class="divider"></view>
+    <view class="hint">
+      这次不算你的错，只是 AI 想让工单更准确一点。重新拍一张通常就能通过；
+      如果你确信信息是对的，也可以直接转人工复核。
+    </view>
+  </view>
+
+  <view class="footer">
+    <view class="btn-primary" hover-class="pressed" bindtap="redo">重新拍一张</view>
+    <view class="btn-text {{forcing ? 'dim' : ''}}" bindtap="forceSubmit">
+      {{forcing ? '提交中…' : '仍然提交，转人工复核'}}
+    </view>
+    <view class="hint foot-hint">AI 建议 · 仅供参考，人工复核全程保留</view>
+  </view>
+
+</view>

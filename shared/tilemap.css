@@ -1,0 +1,163 @@
+/* ==========================================================================
+ * 见微 · 瓦片地图样式
+ * 与 tilemap.js 配套，用户端与管理端共用
+ * ========================================================================== */
+
+.tm-root {
+  position: relative;
+  overflow: hidden;
+  background: #E8EFEE;
+  touch-action: none;          /* 单指拖地图，不带动页面滚动 */
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.tm-root.is-dragging { cursor: grabbing; }
+
+/* ---------------- 瓦片 ---------------- */
+
+.tm-tiles {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/*
+ * 瓦片默认就是可见的，淡入交给只写 from 的动画。
+ * 不要写成 opacity:0 + 靠 JS 加 class 才显示 —— 一旦动画/过渡在某个
+ * 环境下没推进（无头浏览器、低端机降频），整张底图会集体消失。
+ */
+.tm-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 256px;
+  height: 256px;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  animation: tmTileIn .28s ease-out backwards;
+}
+@keyframes tmTileIn {
+  from { opacity: 0; }
+}
+/* 加载失败的空瓦片直接藏掉，别露破图 */
+.tm-tile.is-bad { visibility: hidden; }
+
+/* ---------------- 热力 ---------------- */
+
+.tm-heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;    /* 让热力压在底图上还能看见路网，而不是糊成一团色块 */
+  opacity: .92;
+}
+
+/* ---------------- 标记 ---------------- */
+
+.tm-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tm-mark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  transition: left .18s linear, top .18s linear;
+  will-change: left, top;
+}
+
+/* ---------------- 底图兜底 ---------------- */
+
+.tm-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background-color: #E9F0EF;
+  background-image:
+    linear-gradient(rgba(43, 122, 120, .08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 122, 120, .08) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
+}
+.tm-grid span {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .86);
+  border: 1px solid rgba(43, 122, 120, .18);
+  font-size: 12px;
+  color: #5C7472;
+}
+
+/* ---------------- 缩放控件 ---------------- */
+
+.tm-ctrl {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px -8px rgba(20, 50, 48, .45);
+  z-index: 4;
+}
+.tm-ctrl button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: rgba(255, 255, 255, .94);
+  color: #2B4A48;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .16s;
+}
+.tm-ctrl button:hover { background: #fff; }
+.tm-ctrl button:active { background: #EAF3F2; }
+
+/* 版权（高德要求标注来源，别删） */
+.tm-attrib {
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  font-size: 9px;
+  color: rgba(60, 80, 78, .55);
+  pointer-events: none;
+  z-index: 3;
+  letter-spacing: .2px;
+}
+
+/* ---------------- 单标记外观 ---------------- */
+
+.tm-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px -2px rgba(20, 50, 48, .5);
+  position: relative;
+  cursor: pointer;
+  transition: transform .22s cubic-bezier(.34, 1.56, .64, 1);
+}
+.tm-dot:hover { transform: scale(1.24); }
+.tm-dot::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: .28;
+  animation: tmPulse 2.6s ease-out infinite;
+}
+@keyframes tmPulse {
+  0%   { transform: scale(.8); opacity: .34; }
+  70%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.tm-dot.is-plain::after { display: none; }

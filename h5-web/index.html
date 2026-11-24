@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>见微 · 用户端</title>
+<meta name="description" content="见微 · 校园微治理 —— 基于 AI 降噪的众包式公共设施微治理平台，用户端演示">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232B7A78'/%3E%3Cpath d='M16 6l9 3.4v7c0 5.6-3.7 9.4-9 11.2-5.3-1.8-9-5.6-9-11.2v-7L16 6Z' stroke='%23fff' stroke-width='2' fill='none' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='15' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../shared/tilemap.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ================= 手机画布 ================= -->
+  <div class="device" id="device">
+
+    <!-- 状态栏 -->
+    <div class="statusbar">
+      <span class="sb-time">9:41</span>
+      <span class="sb-ic" id="sbIcons"></span>
+    </div>
+
+    <!-- 屏容器 -->
+    <div class="screens" id="screens">
+
+      <!-- ========== 1. 地图 ========== -->
+      <section class="screen is-active" data-screen="map">
+        <div class="hero-head reveal">
+          <div class="h1">见微</div>
+          <div class="sub">看见问题，就是解决的一半</div>
+        </div>
+
+        <div class="stat-strip reveal" style="--d:1">
+          <div class="stat-item">
+            <div class="n num" id="cntPending">0</div>
+            <div class="l">处待处理</div>
+          </div>
+          <div class="stat-item">
+            <div class="n num is-ok" id="cntResolved">0</div>
+            <div class="l">处已解决</div>
+          </div>
+          <div class="grow"></div>
+          <div class="hint" style="text-align:right;line-height:1.5">点击地图上的点<br>查看它后来的样子</div>
+        </div>
+
+        <div class="map-card reveal" style="--d:2" id="mapCard">
+          <!-- 真实底图：自研瓦片地图组件，高德瓦片免密钥 -->
+          <div class="map-holder" id="mapHolder"></div>
+
+          <!-- 地图上的定位按钮 -->
+          <button class="map-locate" id="btnMapLocate" aria-label="回到我的位置">
+            <span data-icon="locate" data-size="15"></span>
+          </button>
+
+          <div class="map-badge" id="mapBadge">
+            <span data-icon="pin" data-size="11"></span>郑州大学主校区
+          </div>
+
+          <div class="legend">
+            <span><i style="background:#D9483F"></i>待处理</span>
+            <span><i style="background:#3E8A5F"></i>已解决</span>
+          </div>
+        </div>
+
+        <div class="layer-row reveal" style="--d:3">
+          <button class="chip on" data-layer="pending">
+            <span class="dot"></span>待处理 <span class="num" id="cPending">0</span>
+          </button>
+          <button class="chip" data-layer="resolved">
+            <span class="dot"></span>已解决 <span class="num" id="cResolved">0</span>
+          </button>
+          <div class="grow"></div>
+          <button class="recenter" id="btnRecenter" aria-label="回到我的位置">
+            <span data-icon="locate" data-size="13"></span>我的位置
+          </button>
+        </div>
+
+        <div class="action-dock">
+          <button class="report-fab" data-go="report">
+            <span data-icon="camera" data-size="18"></span>一键上报
+          </button>
+          <div class="dock-hint">拍照 30 秒完成，AI 帮你把话说到点上</div>
+        </div>
+      </section>
+
+      <!-- ========== 2. 上报 ========== -->
+      <section class="screen" data-screen="report">
+        <div class="nav">
+          <button class="nav-back" data-go="map" aria-label="返回">
+            <span data-icon="back" data-size="19"></span>
+          </button>
+          <div class="nav-title">上报问题</div>
+        </div>
+
+        <!-- 照片 -->
+        <div class="form-sec reveal">
+          <div class="form-head">
+            <span class="form-label">现场照片</span>
+            <span class="form-note">最多 3 张</span>
+          </div>
+          <div class="photo-grid" id="photoGrid"></div>
+          <div class="hint" style="margin-top:8px">拍清楚设施本身，AI 更容易判断</div>
+        </div>
+
+        <!-- 类型 -->
+        <div class="form-sec reveal" style="--d:1">
+          <div class="form-head">
+            <span class="form-label">问题类型</span>
+            <span class="form-note">必选</span>
+          </div>
+          <div class="type-row" id="typeRow"></div>
+        </div>
+
+        <!-- 位置 -->
+        <div class="form-sec reveal" style="--d:2">
+          <div class="form-head">
+            <span class="form-label">位置</span>
+            <span class="form-note" id="locState">定位中…</span>
+          </div>
+          <div class="loc-row">
+            <label class="field">
+              <span data-icon="pin" data-size="15" style="color:var(--text-3)"></span>
+              <input id="addrInput" type="text" placeholder="自动定位，也可手动填写" spellcheck="false">
+            </label>
+            <button class="loc-fix" id="btnFixLoc">修正</button>
+          </div>
+          <div class="loc-meta" id="coordMeta">
+            <span data-icon="locate" data-size="12"></span>
+            <span>展示时坐标自动模糊到约 100 米</span>
+          </div>
+        </div>
+
+        <!-- 描述 -->
+        <div class="form-sec reveal" style="--d:3">
+          <div class="form-head">
+            <span class="form-label">补充描述</span>
+            <span class="form-note"><span class="num" id="descCount">0</span> / 100</span>
+          </div>
+          <textarea class="textarea" id="descInput" maxlength="100"
+            placeholder="说说具体情况，例如「这盏灯闪了三天」「垃圾已经堆到路上了」"></textarea>
+          <div class="hint" style="margin-top:8px">不用写得很正式，AI 会帮你整理成工单</div>
+        </div>
+
+        <div class="submit-dock">
+          <button class="btn btn--primary btn--block" id="btnSubmit" aria-disabled="true">提交上报</button>
+          <div class="dock-hint">所有 AI 判断仅供参考，最终以人工复核为准</div>
+        </div>
+      </section>
+
+      <!-- ========== 3. 结果（内容由 JS 渲染） ========== -->
+      <section class="screen" data-screen="result">
+        <div id="resultBody"></div>
+      </section>
+
+      <!-- ========== 4. 我的上报 ========== -->
+      <section class="screen" data-screen="reports">
+        <div class="hero-head reveal">
+          <div class="h1">我的上报</div>
+          <div class="sub" id="reportsSub">共 8 条记录</div>
+        </div>
+        <div class="tabs" id="reportTabs"></div>
+        <div class="report-list" id="reportList"></div>
+      </section>
+
+      <!-- ========== 5. 我的 ========== -->
+      <section class="screen" data-screen="profile">
+        <div class="profile-head reveal">
+          <div class="avatar" id="pAvatar">李</div>
+          <div>
+            <div class="nm" id="pName">李知远</div>
+            <div class="sb" id="pStreak">连续 3 天上报</div>
+          </div>
+        </div>
+
+        <div class="credit-card reveal" style="--d:1">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;position:relative;z-index:1">
+            <div>
+              <div class="credit-label">信用分</div>
+              <div class="credit-num" id="pCredit">86<small>/ 100</small></div>
+            </div>
+            <div class="credit-tier" id="pTier">守信哨兵</div>
+          </div>
+          <div class="credit-bar"><i id="creditBar"></i></div>
+          <div class="credit-note">有效上报 +2 · 无效提交 −1 · 满 100 分可兑换文创</div>
+        </div>
+
+        <div class="tri-stat reveal" style="--d:2">
+          <div><div class="n num" id="pValid">12</div><div class="l">有效上报</div></div>
+          <div><div class="n num is-ok" id="pResolved">8</div><div class="l">已解决</div></div>
+          <div><div class="n num" id="pInvalid">1</div><div class="l">无效提交</div></div>
+        </div>
+
+        <div class="panel reveal" style="--d:3">
+          <div class="panel-hd">
+            <span class="h3">我的徽章</span>
+            <button class="more" data-go="badges">
+              全部<span data-icon="chevron" data-size="12"></span>
+            </button>
+          </div>
+          <div class="badge-row" id="profileBadges"></div>
+        </div>
+
+        <div class="menu reveal" style="--d:4">
+          <button class="menu-item" data-go="reports">
+            <span class="mi" data-icon="list" data-size="17"></span>
+            <span class="grow">我的上报</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
+          <button class="menu-item" data-go="badges">
+            <span class="mi" data-icon="shield" data-size="17"></span>
+            <span class="grow">徽章墙</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
+          <button class="menu-item" id="btnExchange">
+            <span class="mi" data-icon="zap" data-size="17"></span>
+            <span class="grow">积分兑换</span>
+            <span class="tag tag--review" style="margin-right:2px">即将开放</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ========== 6. 徽章墙 ========== -->
+      <section class="screen" data-screen="badges">
+        <div class="nav">
+          <button class="nav-back" data-go="profile" aria-label="返回">
+            <span data-icon="back" data-size="19"></span>
+          </button>
+          <div class="nav-title">徽章墙</div>
+        </div>
+        <div class="badge-summary reveal">
+          <div class="big num" id="badgeGot">3<sub> / 6</sub></div>
+          <div class="muted" style="flex:1">每一次有效上报都会被记住。<br>灰色的是还没解锁的，下面写着条件。</div>
+        </div>
+        <div class="badge-grid" id="badgeGrid"></div>
+        <div class="hint" style="text-align:center;padding:2px 28px 26px;line-height:1.7">
+          徽章在每次有效上报后自动结算，不用手动领取
+        </div>
+      </section>
+
+    </div>
+
+    <!-- 底部导航 -->
+    <nav class="tabbar" id="tabbar"></nav>
+    <div class="hi-bar"><i></i></div>
+
+  </div>
+
+  <!-- ================= 右侧演示面板 ================= -->
+  <aside class="demo">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+          <path d="M12 3.4l7 2.5v5.6c0 4.4-2.9 7.4-7 8.8-4.1-1.4-7-4.4-7-8.8V5.9l7-2.5Z"
+                stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+          <circle cx="12" cy="11" r="2.1" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="nm">见微</div>
+        <div class="sb">Light Sentinel</div>
+      </div>
+    </div>
+
+    <p class="lead">
+      众包式公共设施微治理平台。上报先过 <b>三道 AI 闸门</b>，
+      只把经得起看的照片和说得通的话，推到管理端。
+    </p>
+
+    <div class="ai-mode">
+      <span class="dot"></span>
+      <span class="k">判定引擎</span>
+      <span class="v" id="aiModeBadge" data-mode="rules">本地规则引擎</span>
+    </div>
+
+    <h4>演示场景</h4>
+    <div class="scene-list" id="sceneList"></div>
+
+    <h4>其他</h4>
+    <div class="scene-list">
+      <button class="scene" id="btnReset">
+        <span class="k">↺</span>
+        <span class="t">重置演示数据<small>回到初始的 8 条上报</small></span>
+      </button>
+    </div>
+
+    <div class="demo-foot">
+      数据全部本地模拟，不依赖网络与后端。<br>
+      AI 判定仅为建议，人工复核入口全程保留。
+    </div>
+  </aside>
+
+</div>
+
+<script src="../shared/tilemap.js"></script>
+<script src="../shared/domain.js"></script>
+<script src="../shared/agent.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
