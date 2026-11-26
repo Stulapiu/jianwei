@@ -579,6 +579,55 @@
 /* 类型选择 */
 .type-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* AI 候选类型：图片一上传就顶到前面，点一下就换上 */
+.type-suggest {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-m);
+  background: var(--brand-light);
+  border: 1px solid rgba(46, 111, 183, .14);
+}
+.type-suggest[hidden] { display: none; }
+.ts-head {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11.5px;
+  color: var(--brand);
+  font-weight: 600;
+}
+.ts-head .ts-ic { display: inline-flex; }
+.ts-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ts-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(46, 111, 183, .22);
+  background: var(--card);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ts-chip b { color: var(--brand); font-weight: 600; }
+.ts-chip:active { transform: scale(.96); }
+.ts-note { margin-top: 7px; font-size: 11px; color: var(--text-3); line-height: 1.5; }
+
+/* 描述建议：点一下直接填入 */
+.desc-suggest {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border-radius: var(--r-m);
+  background: rgba(46, 111, 183, .06);
+  border: 1px dashed rgba(46, 111, 183, .28);
+  cursor: pointer;
+  transition: background .2s var(--ease);
+}
+.desc-suggest[hidden] { display: none; }
+.desc-suggest:active { background: rgba(46, 111, 183, .12); }
+.ds-ic { flex: none; color: var(--brand); margin-top: 1px; }
+.ds-main { flex: 1; min-width: 0; }
+.ds-k { font-size: 11px; color: var(--brand); font-weight: 600; }
+.ds-t { margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.ds-use { flex: none; font-size: 11.5px; color: var(--brand); font-weight: 600; align-self: center; }
+
 /* 位置 */
 .loc-row { display: flex; gap: 8px; }
 .loc-row .field { flex: 1; }
@@ -609,6 +658,19 @@
   padding: 14px 20px 12px;
   background: linear-gradient(rgba(247, 249, 249, 0), var(--bg) 30%);
 }
+.submit-tip {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 9px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(201, 123, 32, .1);
+  border: 1px solid rgba(201, 123, 32, .22);
+  color: #8A5A12;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.submit-tip[hidden] { display: none; }
+.submit-tip.is-block { background: rgba(217, 72, 63, .09); border-color: rgba(217, 72, 63, .2); color: #A03A33; }
 
 /* ---------- AI 分析遮罩 ---------- */
 .ai-mask {
@@ -2394,3 +2456,28 @@
 .lg-d small { display: block; font-size: 10px; font-weight: 500; color: var(--text-3); margin-top: 2px; }
 .lg-d.is-up { color: var(--ok); }
 .lg-d.is-down { color: var(--danger); }
+
+/* ---------- 图文矛盾确认 ---------- */
+.cf-lead { font-size: 12.5px; line-height: 1.65; color: var(--text-2); }
+.cf-compare { display: flex; gap: 10px; margin-top: 12px; }
+.cf-col {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: var(--r-m);
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.cf-col.is-ai { background: var(--brand-light); border-color: rgba(46, 111, 183, .24); }
+.cf-k { font-size: 10.5px; font-weight: 600; color: var(--text-3); letter-spacing: .02em; }
+.cf-col.is-ai .cf-k { color: var(--brand); }
+.cf-type { margin-top: 5px; font-size: 13px; font-weight: 600; color: var(--text); }
+.cf-desc { margin-top: 4px; font-size: 12px; line-height: 1.6; color: var(--text-2); word-break: break-word; }
+.cf-why {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.cf-why svg { flex: none; margin-top: 1px; color: var(--brand); }

@@ -1273,6 +1273,8 @@ table.orders tbody tr:last-child td { border-bottom: none; }
 .status-resolved i { background: var(--ok); }
 .status-review { background: rgba(138, 116, 60, .14); color: #8a7200; }
 .status-review i { background: #b8940a; }
+.status-rejected { background: rgba(22, 41, 43, .07); color: var(--text-3); }
+.status-rejected i { background: var(--text-3); }
 
 /* 操作 */
 .ops { display: flex; gap: 5px; }
@@ -2178,8 +2180,154 @@ table.orders tbody tr:last-child td { border-bottom: none; }
 .sla-chip.is-ok { background: rgba(46, 139, 98, .1); color: var(--ok); }
 .dr-dim { color: var(--text-3); font-size: 11px; }
 
+/* ==========================================================================
+ * 待复核队列
+ * --------------------------------------------------------------------------
+ * 以前复核单只混在"全部"里，状态写个"待复核"，没人会专门去找它。
+ * 这一条是给值班的人看的：今天有几张单卡在这里、卡了多久。
+ * ========================================================================== */
+.filter .fc {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+.filter .fc[hidden] { display: none; }
+
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 13px 18px;
+  border-left: 3px solid var(--warn);
+  background: linear-gradient(90deg, rgba(201, 123, 32, .1), rgba(255, 255, 255, .62) 40%);
+}
+.review-bar[hidden] { display: none; }
+.rb-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(201, 123, 32, .14);
+  color: #8A5A12;
+}
+.rb-main { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
+.rb-main b { font-family: var(--font-num); font-size: 16px; color: #8A5A12; margin-right: 2px; }
+.rb-sub { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-3); }
+.rb-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 9px;
+  border: 1px solid rgba(201, 123, 32, .32);
+  background: rgba(255, 255, 255, .8);
+  color: #8A5A12;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .18s var(--ease);
+}
+.rb-btn:hover { background: rgba(201, 123, 32, .12); }
+
+/* 抽屉里的复核结论区 */
+.dr-review {
+  border: 1px solid rgba(201, 123, 32, .28);
+  background: rgba(201, 123, 32, .07);
+}
+.dr-review .dr-section-title { color: #8A5A12; }
+.dr-rv-row { display: flex; gap: 8px; margin-top: 8px; font-size: 12.5px; line-height: 1.6; }
+.dr-rv-k { flex: none; width: 58px; color: var(--text-3); }
+.dr-rv-v { flex: 1; min-width: 0; color: var(--text); word-break: break-word; }
+.dr-rv-acts { display: flex; gap: 8px; margin-top: 12px; }
+.dr-rv-btn {
+  flex: 1;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dr-rv-btn.is-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.dr-rv-btn.is-no { color: var(--danger); border-color: rgba(192, 57, 43, .3); }
+.dr-rv-btn:active { transform: translateY(1px); }
+
+@media (max-width: 820px) {
+  .review-bar { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+  .rb-btn { width: 100%; }
+}
+
+/* ==========================================================================
+ * AI 洞察：数据条 + 失败态
+ * ========================================================================== */
+.ai-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ai-facts:empty { display: none; }
+.f-item {
+  flex: 1 1 90px;
+  min-width: 84px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid rgba(22, 41, 43, .06);
+}
+.f-item b { display: block; font-family: var(--font-num); font-size: 18px; line-height: 1.1; color: var(--text); }
+.f-item span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-3); }
+.f-item.is-warn b { color: var(--warn); }
+
+.ai-fail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+  white-space: normal;
+}
+.ai-fail b { font-size: 13px; color: var(--warn); }
+.ai-fail code {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(22, 41, 43, .06);
+  font-family: var(--font-num);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.route-tip {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: rgba(43, 122, 120, .08);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--brand-deep);
+}
+
+.merge-sug.is-loading { opacity: .68; }
+.merge-sug.is-loading .merge-sug-desc { color: var(--text-3); }
+
 </style>
-<!-- 单文件构建 · 2026-11-26 14:17:05 · CSS×2 JS×4 -->
+<!-- 单文件构建 · 2026-11-26 15:16:19 · CSS×2 JS×5 -->
 </head>
 <body>
 
@@ -2440,6 +2588,7 @@ table.orders tbody tr:last-child td { border-bottom: none; }
             <button class="filter on" data-status="all">全部</button>
             <button class="filter" data-status="pending">待处理</button>
             <button class="filter" data-status="processing">处理中</button>
+            <button class="filter" data-status="review">待复核<em class="fc" id="filterReviewCount" hidden>0</em></button>
             <button class="filter" data-status="resolved">已完成</button>
           </div>
 
@@ -2470,6 +2619,21 @@ table.orders tbody tr:last-child td { border-bottom: none; }
           <span class="spacer"></span>
           <span class="hint-inline">同人重复上报自动并入；多人报同一处会抬升优先级</span>
         </div>
+      </div>
+
+      <div class="card glass table-card review-bar" id="reviewBar" hidden>
+        <span class="rb-ic">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.6l7 2.5v5.5c0 4.4-2.9 7.4-7 8.8-4.1-1.4-7-4.4-7-8.8V6.1l7-2.5Z"/>
+            <path d="M12 8.6v3.6M12 15.4h.01"/>
+          </svg>
+        </span>
+        <div class="rb-main">
+          <b class="num" id="reviewCount">0</b> 条在等人工复核
+          <span class="rb-sub">画质存疑、用户主动转人工、图文对不上，都落在这一队</span>
+        </div>
+        <button class="rb-btn" id="btnReviewOnly">只看待复核</button>
       </div>
 
       <div class="card glass table-card">
@@ -2508,7 +2672,8 @@ table.orders tbody tr:last-child td { border-bottom: none; }
           </div>
           <button class="btn btn-primary" id="btnWeekly">生成周报</button>
         </div>
-        <div class="ai-output empty" id="outWeekly">点击「生成周报」，产出一段 200 字左右的简报。</div>
+        <div class="ai-facts" id="weeklyFacts"></div>
+        <div class="ai-output empty" id="outWeekly">点击「生成周报」，AI 会读完本周数据后写一段简报。</div>
         <div class="ai-foot">
           <button class="btn btn-ghost" id="btnCopy">复制文本</button>
           <span class="ai-tag">AI 生成 · 建议人工核对后使用</span>
@@ -2521,9 +2686,10 @@ table.orders tbody tr:last-child td { border-bottom: none; }
             <h3>AI 哨兵巡逻</h3>
             <p>从被动等报修转向主动巡查。基于历史高频故障点，生成下一条重点巡查路线。</p>
           </div>
-          <button class="btn btn-primary" id="btnPatrol">模拟巡逻</button>
+          <button class="btn btn-primary" id="btnPatrol">生成巡逻路线</button>
         </div>
-        <div class="ai-output empty" id="outPatrol">点击「模拟巡逻」，系统会结合高频点位给出路线建议。</div>
+        <div class="ai-facts" id="patrolFacts"></div>
+        <div class="ai-output empty" id="outPatrol">点击「生成巡逻路线」，AI 会按紧急度排出路线并说明每个点位看什么。</div>
         <div class="route" id="routeBox"></div>
       </div>
 
@@ -3360,6 +3526,28 @@ table.orders tbody tr:last-child td { border-bottom: none; }
   TYPES.forEach(function (t) { TYPE_MAP[t.id] = t; });
 
   /* ----------------------------------------------------------------------
+   * 二·补、哪些类型可以不拍照
+   * -------------------------------------------------------------------- */
+
+  /**
+   * 照片要求的判断标准只有一个：这张图能不能证明问题存在。
+   *
+   *   能证明 —— 井盖缺失、路灯不亮、垃圾满溢、护栏断裂、路面坑洼。
+   *             一张图能让后勤少跑一趟空路，所以必传。
+   *   证明不了 —— 校园网卡、断网、信号差、系统故障。
+   *             拍路由器指示灯是正常的，拍手机屏幕又不是"现场"，
+   *             逼着必传只会让人随便拍一张交差，反而污染工单。
+   *
+   * 所以这里不做"全都要"也不做"全不要"，按类型分开：
+   * 这两类改成选填，并在界面上写清楚"有图会更快解决"。
+   */
+  var PHOTO_OPTIONAL = { network: 1, other: 1 };
+
+  function photoRequired(typeId) {
+    return !PHOTO_OPTIONAL[typeId];
+  }
+
+  /* ----------------------------------------------------------------------
    * 三、优先级
    * -------------------------------------------------------------------- */
 
@@ -3436,7 +3624,9 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     },
     priorityOf: priorityOf,
     shouldMerge: shouldMerge,
-    mergedSeverity: mergedSeverity
+    mergedSeverity: mergedSeverity,
+    photoRequired: photoRequired,
+    PHOTO_OPTIONAL: PHOTO_OPTIONAL
   };
 
   if (typeof module === 'object' && module.exports) module.exports = D;
@@ -3708,6 +3898,224 @@ window.Payout = (function () {
     statusOf: statusOf
   };
 })();
+
+</script>
+<script data-from="../shared/insight.js">
+/* ==========================================================================
+ * 见微 · 管理端洞察（Insight）
+ * --------------------------------------------------------------------------
+ * 周报、巡逻路线、合并建议这三块，原来是把统计数字套进几段写死的句子里。
+ * 演示时看着像 AI 写的，实际上换一批数据它也是那几句话 —— 数字变了，
+ * 判断没变，这就不叫分析。
+ *
+ * 现在改成：先把数据算好（这部分仍然是确定性的，不交给模型），
+ * 再把数据交给 DeepSeek 写判断。模型只负责"怎么看这件事"，
+ * 不负责算数 —— 数字错一个，整段结论就废了。
+ *
+ * 没有代理时**不生成假文本**。返回一个明确的错误，界面照实说"AI 没连上"，
+ * 顶多把原始统计摆出来让人自己看。宁可少一段话，不要一段编的话。
+ * ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  var ENDPOINT = 'http://localhost:8787/v1';
+
+  function base() {
+    return ENDPOINT.replace(/\/v1\/?$/, '');
+  }
+
+  function health() {
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 1500) : null;
+    return fetch(base() + '/health', { signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function (j) {
+        if (timer) clearTimeout(timer);
+        return { ok: !!(j && j.ok), hasKey: !!(j && j.hasKey), model: (j && j.model) || '' };
+      })
+      .catch(function (e) {
+        if (timer) clearTimeout(timer);
+        return { ok: false, error: String(e && e.message || e) };
+      });
+  }
+
+  function chat(system, user, opt) {
+    var o = opt || {};
+    var body = {
+      model: o.model || 'deepseek-flash',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user }
+      ],
+      temperature: o.temperature != null ? o.temperature : 0.4,
+      max_tokens: o.maxTokens || 700,
+      thinking: { type: 'disabled' }
+    };
+    if (o.json) body.response_format = { type: 'json_object' };
+
+    var t0 = Date.now();
+    return fetch(ENDPOINT.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        var txt = j.choices && j.choices[0] && j.choices[0].message
+          ? j.choices[0].message.content : '';
+        if (!txt) throw new Error('模型没有返回内容');
+        return { text: String(txt).trim(), latency: Date.now() - t0 };
+      });
+  }
+
+  function parseJSON(text) {
+    if (!text) return null;
+    try { return JSON.parse(text); } catch (e) { /* 继续 */ }
+    var i = text.indexOf('{');
+    var j = text.lastIndexOf('}');
+    if (i >= 0 && j > i) {
+      try { return JSON.parse(text.slice(i, j + 1)); } catch (e2) { /* 继续 */ }
+    }
+    return null;
+  }
+
+  function statsLine(d) {
+    var lines = [];
+    lines.push('本周接收上报 ' + d.total + ' 条（含 AI 拦截 ' + d.blocked + ' 条，拦截率 ' + d.blockRate + '%）。');
+    lines.push('有效工单 ' + d.valid + ' 条，已办结 ' + d.done + ' 条，处理率 ' + d.rate + '%。');
+    lines.push('当前待处理 ' + d.pending + ' 条，其中 P0 ' + d.p0 + ' 条。');
+    if (d.areas && d.areas.length) {
+      lines.push('待处理最集中的片区：' + d.areas.map(function (a) {
+        return a.name + '（' + a.n + ' 条，累计紧急度 ' + a.score + '）';
+      }).join('、') + '。');
+    }
+    if (d.types && d.types.length) {
+      lines.push('类型构成：' + d.types.map(function (t) {
+        return t.label + ' ' + t.n + ' 条';
+      }).join('、') + '。');
+    }
+    if (d.repeats && d.repeats.length) {
+      lines.push('反复报修的点位：' + d.repeats.map(function (r) {
+        return r.address + '（近 30 天 ' + r.n + ' 次）';
+      }).join('、') + '。');
+    }
+    if (d.rejected) lines.push('人工复核驳回 ' + d.rejected + ' 条。');
+    return lines.join('\n');
+  }
+
+  /**
+   * 周报。要求模型给"判断"而不是复述数字：
+   * 哪一类在变多、哪一片反复出问题、下周该先做什么。
+   */
+  function weekly(d) {
+    var system = [
+      '你是高校后勤管理中心的运营分析员，要给中心主任写一段可以直接发到工作群的周报。',
+      '',
+      '硬性要求：',
+      '  1. 220-300 字，分 3 段，不要小标题，不要 markdown。',
+      '  2. 数字只在第一段出现，后面写判断和动作。不要逐个复述所有数字。',
+      '  3. 必须给出"下周先做什么"的具体建议，最多两条，要能执行（谁、去哪、做什么）。',
+      '  4. 不要写"综上所述""总体来看"这类空话，不要编造数据里没有的东西。',
+      '  5. 如果某类问题在重复发生，要指出这可能是上次没根治，而不是新问题。',
+      '  6. 语气克制，像同事在交接工作，不像宣传稿。'
+    ].join('\n');
+
+    var user = [
+      '本周数据（统计口径已核准，直接引用，不要重算）：',
+      statsLine(d),
+      '',
+      '请据此写周报。'
+    ].join('\n');
+
+    return chat(system, user, { temperature: 0.45, maxTokens: 700 })
+      .then(function (r) { return { ok: true, text: r.text, latency: r.latency }; });
+  }
+
+  /**
+   * 巡逻路线。数据侧已经把点位和紧急度算好了，
+   * 模型负责解释"为什么这么排、到了看什么"。
+   */
+  function patrol(d) {
+    var system = [
+      '你是高校后勤的巡检调度员。给你一份待处理工单聚合出来的点位表，',
+      '请写一段巡查建议，并给每个点位一句"到了看什么"。',
+      '',
+      '判断原则：',
+      '  - 顺序按紧急度累加排，不是按条数。一个井盖缺失比三处草坪问题更该先去。',
+      '  - 同一片区的不同类型问题，能顺路看的就放在一起，别让人来回跑。',
+      '  - 到了现场看什么，要具体（例如"看井盖是否缺失、周边是否已围挡"），不要写"检查设施"。',
+      '',
+      '严格只输出 JSON：',
+      '{',
+      '  "intro": "80 字以内的路线说明，说清为什么这么排、预计多久",',
+      '  "stops": [{ "i": 0, "why": "20 字以内，到这个点重点看什么" }],',
+      '  "tip": "30 字以内的一条提醒，例如带什么工具、几点去合适"',
+      '}'
+    ].join('\n');
+
+    var user = [
+      '待处理点位（按紧急度累加排序，i 是从 0 开始的序号）：',
+      d.stops.map(function (s, i) {
+        return (i + 1) + '. ' + s.name + ' · ' + s.n + ' 条 · 累计紧急度 ' + s.score +
+          ' · 类型：' + s.types.join('、');
+      }).join('\n'),
+      '',
+      '共 ' + d.stops.length + ' 个点位。请给巡查建议。'
+    ].join('\n');
+
+    return chat(system, user, { json: true, temperature: 0.35, maxTokens: 600 })
+      .then(function (r) {
+        var p = parseJSON(r.text);
+        if (!p) throw new Error('模型返回的不是 JSON');
+        return { ok: true, intro: p.intro || '', stops: p.stops || [], tip: p.tip || '', latency: r.latency };
+      });
+  }
+
+  /** 合并建议：给每一组写一句"为什么值得合并" */
+  function merge(groups) {
+    var system = [
+      '你是后勤调度员。下面几组工单在物理位置上很接近，可能可以合并成一次出勤。',
+      '给每一组写一句判断：值不值得合并、合并之后怎么安排。',
+      '',
+      '要求：',
+      '  - 每组一句标题（24 字内）+ 一句说明（40 字内）。',
+      '  - 说明要提到"省什么"（车程、来回次数、重复上门），不要空泛。',
+      '  - 如果某组其实不该合并（例如分属两个必须分开处理的班组），直说。',
+      '',
+      '严格只输出 JSON：{ "items": [{ "i": 0, "title": "", "desc": "" }] }'
+    ].join('\n');
+
+    var user = groups.map(function (g, i) {
+      return (i + 1) + '. ' + g.area + ' · ' + g.n + ' 条 · ' + g.reports + ' 次上报 · ' +
+        (g.types.length ? '类型：' + g.types.join('、') : '类型分散') +
+        (g.deptWide ? ' · 同一个班组辖区' : '');
+    }).join('\n');
+
+    return chat(system, user, { json: true, temperature: 0.4, maxTokens: 600 })
+      .then(function (r) {
+        var p = parseJSON(r.text);
+        if (!p || !Array.isArray(p.items)) throw new Error('模型返回的不是 JSON');
+        return { ok: true, items: p.items, latency: r.latency };
+      });
+  }
+
+  var Insight = {
+    ENDPOINT: ENDPOINT,
+    health: health,
+    weekly: weekly,
+    patrol: patrol,
+    merge: merge,
+    _statsLine: statsLine
+  };
+
+  if (typeof module === 'object' && module.exports) module.exports = Insight;
+  global.Insight = Insight;
+
+})(typeof window !== 'undefined' ? window : this);
 
 </script>
 <script data-from="assets/admin.js">
@@ -4458,8 +4866,8 @@ window.Payout = (function () {
         list.sort(function (a, b) {
           // 已完成的沉到底部：管理端最关心的是「还没处理的里哪个最急」，
           // 把昨天的 P0 已完成工单钉在最上面只会碍事
-          var da = a.status === 'resolved' ? 1 : 0;
-          var db = b.status === 'resolved' ? 1 : 0;
+          var da = (a.status === 'resolved' || a.status === 'rejected') ? 1 : 0;
+          var db = (b.status === 'resolved' || b.status === 'rejected') ? 1 : 0;
           return da - db ||
                  b.severity - a.severity ||
                  a.createdAt - b.createdAt;      // 同优先级时先报的先处理
@@ -4487,6 +4895,21 @@ window.Payout = (function () {
 
   function renderOrders() {
     var list = filteredOrders();
+
+    /* 待复核队列单独立一块。
+       这类单子既不是"待处理"也不是"处理中"，混在全部里很容易被漏掉；
+       而它们恰恰是最需要人看一眼的：AI 没把握、或者用户自己要求人工。 */
+    var reviewN = ORDERS.filter(function (o) { return o.status === 'review'; }).length;
+    var rvBar = $('#reviewBar');
+    if (rvBar) {
+      rvBar.hidden = !reviewN;
+      $('#reviewCount').textContent = reviewN;
+    }
+    var rvBadge = $('#filterReviewCount');
+    if (rvBadge) {
+      rvBadge.textContent = reviewN;
+      rvBadge.hidden = !reviewN;
+    }
 
     var mergedGroups = list.filter(function (o) {
       var uniq = {};
@@ -4522,7 +4945,7 @@ window.Payout = (function () {
       var statusCls = 'status-' + o.status;
       var statusLabel = {
         pending: '待处理', processing: '处理中',
-        resolved: '已完成', review: '待复核'
+        resolved: '已完成', review: '待复核', rejected: '已驳回'
       }[o.status] || '待处理';
 
       return '<tr data-id="' + o.id + '">' +
@@ -4574,10 +4997,12 @@ window.Payout = (function () {
         '<td><span class="status ' + statusCls + '"><i></i>' + statusLabel + '</span></td>' +
         '<td>' +
           '<div class="ops">' +
-            (o.status === 'pending' || o.status === 'review'
-              ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
-              : '') +
-            (o.status !== 'resolved'
+            (o.status === 'review'
+              ? '<button class="op op-primary" data-act="review" data-id="' + o.id + '">复核</button>'
+              : (o.status === 'pending'
+                  ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
+                  : '')) +
+            (o.status !== 'resolved' && o.status !== 'rejected'
               ? '<button class="op op-done" data-act="done" data-id="' + o.id + '" ' +
                   'title="办结并向上报人发放积分">办结</button>'
               : '') +
@@ -4622,7 +5047,7 @@ window.Payout = (function () {
         var id = b.dataset.id;
         var act = b.dataset.act;
 
-        if (act === 'detail') {
+        if (act === 'detail' || act === 'review') {
           var o = ORDERS.filter(function (x) { return x.id === id; })[0];
           if (o) openDrawer(o);
           return;
@@ -4827,35 +5252,97 @@ window.Payout = (function () {
     }, 16);
   }
 
+  /* ======================================================================
+   * AI 洞察
+   * ----------------------------------------------------------------------
+   * 数字由本地算，判断交给模型。
+   * 模型没连上时不生成"看起来像 AI 写的"文本 —— 那是最坏的一种假：
+   * 数据是真的，结论是编的。宁可明说没连上。
+   * ==================================================================== */
+
+  function factsHTML(items) {
+    return items.map(function (x) {
+      return '<div class="f-item' + (x.tone ? ' is-' + x.tone : '') + '">' +
+        '<b class="num">' + x.v + '</b><span>' + x.k + '</span></div>';
+    }).join('');
+  }
+
+  function aiFailHTML(what) {
+    return '<div class="ai-fail">' +
+      '<b>AI 没有连上，' + what + '没有生成</b>' +
+      '<span>本地代理没启动时，后台不会用固定模板假装是 AI 写的。启动方式：</span>' +
+      '<code>set DEEPSEEK_API_KEY=sk-xxxx</code><code>node server/proxy.mjs</code>' +
+      '<span>上面的数字是真的，可以直接用；下面这段判断等模型接上再来。</span>' +
+    '</div>';
+  }
+
   function bindInsight() {
     $('#btnWeekly').addEventListener('click', function () {
       var pending = pendingList();
       var done = ORDERS.filter(function (o) { return o.status === 'resolved'; }).length;
       var total = ORDERS.length;
-      var rate = Math.round(done / total * 100);
+      var rate = total ? Math.round(done / total * 100) : 0;
       var validTotal = total + BLOCK_LOG.length;
-      var blockRate = Math.round(BLOCK_LOG.length / validTotal * 100);
+      var blockRate = validTotal ? Math.round(BLOCK_LOG.length / validTotal * 100) : 0;
       var p0 = pending.filter(function (o) { return o.severity >= 5; }).length;
 
-      var byArea = {};
+      // 片区聚合：按累计紧急度排，不按条数 —— 一个 P0 比三个 P3 更值得写进周报
+      var areaMap = {};
       pending.forEach(function (o) {
-        var area = areaOf(o.address);
-        byArea[area] = (byArea[area] || 0) + 1;
+        var a = areaOf(o.address);
+        if (!areaMap[a]) areaMap[a] = { name: a, n: 0, score: 0 };
+        areaMap[a].n++;
+        areaMap[a].score += o.severity;
       });
-      var top = Object.keys(byArea).sort(function (a, b) { return byArea[b] - byArea[a]; })[0] || '图书馆片区';
+      var areas = Object.keys(areaMap).map(function (k) { return areaMap[k]; })
+        .sort(function (a, b) { return b.score - a.score; }).slice(0, 3);
 
-      var text =
-        '本周（11 月 18 日 — 11 月 24 日）郑州大学主校区共接收设施问题上报 ' + validTotal + ' 条，' +
-        'AI 前置拦截无效信息 ' + BLOCK_LOG.length + ' 条（' + blockRate + '%），' +
-        '主要原因是照片模糊与非设施内容，拦截质量稳定，未见明显误拦投诉。\n\n' +
-        '有效工单 ' + total + ' 条，已完成 ' + done + ' 条，处理率 ' + rate + '%。' +
-        '当前待处理 ' + pending.length + ' 条，其中紧急（P0）' + p0 + ' 条，已全部通知负责班组。' +
-        '高频区域集中在' + top + '，建议下周把该片区纳入日常巡查路线。\n\n' +
-        '提示：照明类问题连续三周位居前二，且多集中在老旧线路区段，' +
-        '建议由后勤保障部水电班组牵头做一次线路专项排查，比逐点换灯更省事。';
+      var typeMap = {};
+      pending.forEach(function (o) { typeMap[o.type] = (typeMap[o.type] || 0) + 1; });
+      var types = Object.keys(typeMap).map(function (k) {
+        return { label: D.type(k).label, n: typeMap[k] };
+      }).sort(function (a, b) { return b.n - a.n; }).slice(0, 4);
 
-      typewriter($('#outWeekly'), text);
-      toast('周报已生成，可直接复制', 'ok');
+      var repeats = ORDERS.filter(function (o) { return repeatOf(o) >= 2; })
+        .slice(0, 3)
+        .map(function (o) { return { address: o.address, n: repeatOf(o) }; });
+
+      var data = {
+        total: total, valid: total, done: done, rate: rate,
+        blocked: BLOCK_LOG.length, blockRate: blockRate,
+        pending: pending.length, p0: p0,
+        rejected: ORDERS.filter(function (o) { return o.status === 'rejected'; }).length,
+        areas: areas, types: types, repeats: repeats
+      };
+
+      $('#weeklyFacts').innerHTML = factsHTML([
+        { v: validTotal, k: '本周上报' },
+        { v: BLOCK_LOG.length, k: 'AI 拦截' },
+        { v: done, k: '已办结' },
+        { v: pending.length, k: '待处理' },
+        { v: p0, k: 'P0 紧急', tone: p0 ? 'warn' : '' }
+      ]);
+
+      var out = $('#outWeekly');
+      var btn = $('#btnWeekly');
+      out.classList.remove('empty');
+      out.textContent = 'AI 正在读这一周的数据…';
+      btn.disabled = true;
+
+      if (!window.Insight) {
+        out.innerHTML = aiFailHTML('周报');
+        btn.disabled = false;
+        return;
+      }
+
+      Insight.weekly(data).then(function (r) {
+        typewriter(out, r.text);
+        toast('周报已生成 · ' + Math.round(r.latency / 100) / 10 + 's', 'ok');
+      }).catch(function () {
+        out.innerHTML = aiFailHTML('周报');
+      }).then(function () {
+        btn.disabled = false;
+      });
     });
 
     $('#btnCopy').addEventListener('click', function () {
@@ -4883,33 +5370,75 @@ window.Payout = (function () {
       });
 
       var stops = Object.keys(byArea).map(function (k) {
-        return { name: k, n: byArea[k].n, score: byArea[k].score, types: byArea[k].types };
+        var uniq = byArea[k].types.filter(function (t, i, a) { return a.indexOf(t) === i; });
+        return { name: k, n: byArea[k].n, score: byArea[k].score, types: uniq };
       }).sort(function (a, b) { return b.score - a.score; }).slice(0, 5);
 
-      var text = '本周建议重点巡查 ' + stops.length + ' 个点位。' +
-        '顺序按「紧急度累加」排，而不是按上报条数——' +
-        '一个井盖缺失比三处草坪问题更该先到。' +
-        '建议两人一组，从' + (stops[0] ? stops[0].name : '图书馆周边') + '出发，沿主干道向南推进，预计 90 分钟完成。';
+      $('#patrolFacts').innerHTML = factsHTML([
+        { v: stops.length, k: '建议点位' },
+        { v: stops.reduce(function (n, s) { return n + s.n; }, 0), k: '覆盖工单' },
+        { v: stops.reduce(function (n, s) { return n + s.score; }, 0), k: '累计紧急度' }
+      ]);
 
-      typewriter($('#outPatrol'), text);
+      var out = $('#outPatrol');
+      var box = $('#routeBox');
+      var btn = $('#btnPatrol');
 
-      $('#routeBox').innerHTML = stops.map(function (s, i) {
-        var uniq = s.types.filter(function (t, k) { return s.types.indexOf(t) === k; });
-        return '<div class="route-stop">' +
-          '<span class="route-num">' + (i + 1) + '</span>' +
-          '<div class="route-main">' +
-            '<div class="route-name">' + escapeHtml(s.name) + '</div>' +
-            '<div class="route-why">' + uniq.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score + '</div>' +
-          '</div>' +
-          '<span class="route-gap">' + s.n + ' 条</span>' +
-        '</div>';
-      }).join('');
+      if (!stops.length) {
+        out.classList.remove('empty');
+        out.textContent = '当前没有待处理工单，不需要安排巡查。';
+        box.innerHTML = '';
+        return;
+      }
 
-      toast('巡逻路线已生成', 'ok');
+      function paintRoute(whys, intro, tip) {
+        box.innerHTML = stops.map(function (s, i) {
+          return '<div class="route-stop">' +
+            '<span class="route-num">' + (i + 1) + '</span>' +
+            '<div class="route-main">' +
+              '<div class="route-name">' + escapeHtml(s.name) + '</div>' +
+              '<div class="route-why">' + escapeHtml(whys[i] || (s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score)) + '</div>' +
+            '</div>' +
+            '<span class="route-gap">' + s.n + ' 条</span>' +
+          '</div>';
+        }).join('') + (tip ? '<div class="route-tip">' + escapeHtml(tip) + '</div>' : '');
+      }
+
+      out.classList.remove('empty');
+      out.textContent = 'AI 正在排这条路线…';
+      paintRoute([], '', '');
+      btn.disabled = true;
+
+      if (!window.Insight) {
+        out.innerHTML = aiFailHTML('巡逻路线');
+        paintRoute(stops.map(function (s) {
+          return s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score;
+        }), '', '');
+        btn.disabled = false;
+        return;
+      }
+
+      Insight.patrol({ stops: stops }).then(function (r) {
+        var whys = [];
+        (r.stops || []).forEach(function (s) {
+          whys[typeof s.i === 'number' ? s.i : 0] = s.why || '';
+        });
+        typewriter(out, r.intro || '');
+        paintRoute(whys, r.intro, r.tip);
+      }).catch(function () {
+        out.innerHTML = aiFailHTML('巡逻建议');
+        paintRoute(stops.map(function (s) {
+          return s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score;
+        }), '', '');
+      }).then(function () {
+        btn.disabled = false;
+      });
     });
 
     $('#btnMergeAi').addEventListener('click', function () { renderMergeAdvice(true); });
   }
+
+  var mergeSeq = 0;
 
   function renderMergeAdvice(animate) {
     // 找「同一位置 + 同类型」但被拆成多条工单的情况
@@ -4985,61 +5514,92 @@ window.Payout = (function () {
       return;
     }
 
-    box.innerHTML = sug.slice(0, 4).map(function (s) {
-      var t = s.type ? D.type(s.type) : null;
-      var title, desc;
-      if (s.deptWide) {
-        title = '检测到' + s.area + '有 ' + s.n + ' 条待办，建议安排一次集中出勤';
-        desc = '涉及 ' + s.reports + ' 次上报，类型分散。同一位师傅跑一趟能处理完，比分三次出勤省 2 小时车程。';
-      } else if (s.crossType) {
-        var tset = s.orders.map(function (o) { return D.type(o.type).label; })
-          .filter(function (v, i, a) { return a.indexOf(v) === i; });
-        title = s.area + '有 ' + s.n + ' 处不同类型的问题，建议一次出勤顺路处理';
-        desc = '涉及' + tset.slice(0, 3).join('、') + '。虽然分属不同班组，但物理距离在 200 米内，可以协调同日上门。';
-      } else {
-        title = '检测到' + s.area + '有 ' + s.n + ' 条' + t.label + '工单，建议合并为一次集中检修';
-        desc = '共 ' + s.reports + ' 次上报，' + (s.orders[0].severity >= 4
-          ? '其中包含高优先级工单，建议优先安排。'
-          : '紧急度中等，可与其他任务合并出行。');
-      }
+    var groups = sug.slice(0, 4).map(function (s) {
+      var set = s.orders.map(function (o) { return D.type(o.type).label; })
+        .filter(function (v, i, a) { return a.indexOf(v) === i; });
+      return {
+        area: s.area,
+        n: s.n,
+        reports: s.reports,
+        types: set,
+        deptWide: !!s.deptWide,
+        ids: s.orders.map(function (o) { return o.id; })
+      };
+    });
 
-      return '<div class="merge-sug">' +
-        '<div class="merge-sug-ico">' +
-          '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M5 8h6M5 16h6M13 8h6M13 16h6"/><path d="M11 8l2 8M13 8l-2 8"/>' +
-          '</svg>' +
-        '</div>' +
-        '<div class="merge-sug-main">' +
-          '<div class="merge-sug-title">' + escapeHtml(title) + '</div>' +
-          '<div class="merge-sug-desc">' + escapeHtml(desc) + '</div>' +
-        '</div>' +
-        '<button class="op" data-merge-do="' + encodeURIComponent(s.orders.map(function (o) { return o.id; }).join(',')) + '">执行合并</button>' +
-      '</div>';
-    }).join('');
-
-    $$('[data-merge-do]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var ids = decodeURIComponent(b.dataset.mergeDo).split(',');
-        var first = ids[0];
-        var others = ids.slice(1);
-
-        // 合并：除了保留的那条，其余标记为已合并并从待处理里移除
-        others.forEach(function (id) {
-          var o = ORDERS.filter(function (x) { return x.id === id; })[0];
-          var main = ORDERS.filter(function (x) { return x.id === first; })[0];
-          if (!o || !main) return;
-          main.reports = main.reports.concat(o.reports);
-          main.severity = Math.max(main.severity, o.severity);
-          o.mergedInto = first;
-          o.status = 'resolved';
-        });
-
-        renderOrders();
-        renderMetrics();
-        renderDispatch();
-        renderMergeAdvice();
-        toast('已合并 ' + others.length + ' 条工单，上报记录已归并', 'ok');
+    /* 先把"在哪、几条、什么类型"这些确定的东西画出来，
+       再让模型补"为什么值得合并"。模型挂了也不至于一片空白。 */
+    function paint(items, state) {
+      var byI = {};
+      (items || []).forEach(function (it) {
+        var k = (typeof it.i === 'number') ? it.i : 0;
+        byI[k] = it;
       });
+      box.innerHTML = groups.map(function (g, i) {
+        var it = byI[i] || null;
+        var title = it && it.title
+          ? it.title
+          : (g.area + ' · ' + g.n + ' 条' + (g.types.length ? '（' + g.types.slice(0, 2).join(' / ') + '）' : ''));
+        var desc = it && it.desc
+          ? it.desc
+          : (state === 'fail'
+              ? 'AI 未接入，这一组只按位置聚类，不构成建议。启动本地代理后可生成判断。'
+              : '正在判断这一组值不值得合并…');
+        return '<div class="merge-sug' + (state === 'loading' ? ' is-loading' : '') + '">' +
+          '<div class="merge-sug-ico">' +
+            '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M5 8h6M5 16h6M13 8h6M13 16h6"/><path d="M11 8l2 8M13 8l-2 8"/>' +
+            '</svg>' +
+          '</div>' +
+          '<div class="merge-sug-main">' +
+            '<div class="merge-sug-title">' + escapeHtml(title) + '</div>' +
+            '<div class="merge-sug-desc">' + escapeHtml(desc) + '</div>' +
+          '</div>' +
+          '<button class="op" data-merge-do="' + encodeURIComponent(g.ids.join(',')) + '">执行合并</button>' +
+        '</div>';
+      }).join('');
+      bindMergeButtons();
+    }
+
+    function bindMergeButtons() {
+      $$('[data-merge-do]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var ids = decodeURIComponent(b.dataset.mergeDo).split(',');
+          var first = ids[0];
+          var others = ids.slice(1);
+
+          // 合并：除了保留的那条，其余标记为已合并并从待处理里移除
+          others.forEach(function (id) {
+            var o = ORDERS.filter(function (x) { return x.id === id; })[0];
+            var main = ORDERS.filter(function (x) { return x.id === first; })[0];
+            if (!o || !main) return;
+            main.reports = main.reports.concat(o.reports);
+            main.severity = Math.max(main.severity, o.severity);
+            o.mergedInto = first;
+            o.status = 'resolved';
+          });
+
+          renderOrders();
+          renderMetrics();
+          renderDispatch();
+          renderMergeAdvice();
+          toast('已合并 ' + others.length + ' 条工单，上报记录已归并', 'ok');
+        });
+      });
+    }
+
+    paint(null, 'loading');
+
+    var seq = ++mergeSeq;
+    var target = window.Insight;
+    if (!target) { paint(null, 'fail'); return; }
+
+    target.merge(groups).then(function (r) {
+      if (seq !== mergeSeq) return;
+      paint(r.items, 'ok');
+    }).catch(function () {
+      if (seq !== mergeSeq) return;
+      paint(null, 'fail');
     });
 
     if (animate) toast('已重新分析合并建议');
@@ -5125,10 +5685,18 @@ window.Payout = (function () {
           (rep >= 2 ? '，建议这次一并根治' : '') + '</span></div>'
         : '') +
 
+      /* 复核单的动作放在最上面：值班的人打开抽屉就是为了点这两个按钮，
+         不该让他先滚过一整屏诊断再去找。 */
+      reviewSection(o) +
+
       '<div class="dr-section">' +
         '<div class="dr-section-title">AI 诊断 · 仅供参考</div>' +
-        '<div class="dr-note">' + escapeHtml(o.summary) + '<br><br>' +
-          '<b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) + '</div>' +
+        (o.summary || o.advice
+          ? '<div class="dr-note">' + escapeHtml(o.summary || '') +
+            (o.advice ? '<br><br><b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) : '') +
+            '</div>'
+          : '<div class="dr-note">这条没有 AI 诊断 —— 本地代理没启动，或者模型没有返回摘要。' +
+            '不要拿模板话充数，直接看下面的现场记录判断。</div>') +
       '</div>' +
 
       (o.live ? liveSection(o) : '') +
@@ -5189,6 +5757,12 @@ window.Payout = (function () {
     }
 
     bindProgress(o);
+
+    $$('#drawerBody [data-rv]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        resolveReview(o, b.dataset.rv === 'ok');
+      });
+    });
   }
 
   function closeDrawer() {
@@ -5295,8 +5869,8 @@ window.Payout = (function () {
       address: t.addr,
       baseSeverity: t.severity,
       severity: t.severity,
-      summary: t.desc || (meta.label + ' · 现场上报'),
-      advice: (a && a.advice) || 'AI 已放行，按类型自动派单',
+      summary: (a && a.summary) || '',
+      advice: (a && a.advice) || '',
       lng: t.lng,
       lat: t.lat,
       dept: D.deptFor(t.type),
@@ -5712,6 +6286,99 @@ window.Payout = (function () {
     '</div>';
   }
 
+  /**
+   * 抽屉里的「复核结论」。
+   *
+   * 这一块只在 status=review 时出现，回答三个问题：
+   *   为什么这张单需要人看？用户到底写了什么？AI 和用户哪里对不上？
+   * 答完再给两个按钮 —— 通过就派单，不通过就驳回。
+   * 复核不是"再看看"，是一次有结论的分流。
+   */
+  function reviewSection(o) {
+    if (o.status !== 'review') return '';
+
+    var a = o.analysis || {};
+    var why = [];
+    if (a.manual) why.push('用户主动转人工');
+    if (a.conflict) why.push('图文内容对不上');
+    if (a.review) why.push('画质存疑');
+    if (!why.length) why.push('需要人工确认现场');
+
+    var typeFrom = a.typeFrom ? D.type(a.typeFrom).label : '';
+    var typeTo = D.type(o.type).label;
+
+    return '<div class="dr-section dr-review">' +
+      '<div class="dr-section-title">待人工复核 · ' + escapeHtml(why.join(' / ')) + '</div>' +
+
+      '<div class="dr-rv-row"><span class="dr-rv-k">用户描述</span>' +
+        '<span class="dr-rv-v">' + (o.desc ? escapeHtml(o.desc) : '（没有填写）') + '</span></div>' +
+
+      (a.seen
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">AI 看到</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.seen) + '</span></div>'
+        : '') +
+
+      (a.typeAdjusted && typeFrom
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">类型修正</span>' +
+          '<span class="dr-rv-v">用户点的是「' + escapeHtml(typeFrom) + '」，已按内容改为「' +
+          escapeHtml(typeTo) + '」</span></div>'
+        : '') +
+
+      (a.conflict
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">图文矛盾</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.conflictNote || '照片与描述不是同一件事') +
+          (a.conflictAction === 'kept'
+            ? '<br><b style="color:var(--warn)">用户选择保留自己的描述</b>，重点核对是不是拍错了地方'
+            : '<br>用户已采纳 AI 按照片整理的版本') +
+          '</span></div>'
+        : '') +
+
+      '<div class="dr-rv-acts">' +
+        '<button class="dr-rv-btn is-ok" data-rv="ok">确认有效，转派单</button>' +
+        '<button class="dr-rv-btn is-no" data-rv="no">驳回这张单</button>' +
+      '</div>' +
+      '<div class="dr-note" style="margin-top:9px;background:transparent;border:0;padding:0">' +
+        '驳回会给上报人记一次无效提交（扣 5 信用分），所以先看照片再点。' +
+      '</div>' +
+    '</div>';
+  }
+
+  /** 复核结论落地：改状态 + 写时间线 + 写回编码表 */
+  function resolveReview(o, ok) {
+    if (ok) {
+      o.status = 'processing';
+      appendProgress(o, '人工复核通过，已派单',
+        '确认现场与类型一致，转给 ' + o.dept.name,
+        { by: '值班主管', role: 'admin', state: 'processing', tone: 'ok' });
+      patchCodeStatus(o.code, 'processing');
+      toast('复核通过，已转给 ' + o.dept.short, 'ok');
+    } else {
+      o.status = 'rejected';
+      appendProgress(o, '人工复核驳回',
+        '照片与描述对不上，或现场没有可处置的设施问题',
+        { by: '值班主管', role: 'admin', state: 'rejected', tone: 'warn' });
+      patchCodeStatus(o.code, 'rejected');
+      toast('已驳回，上报人会看到驳回原因', 'warn');
+    }
+
+    renderOrders();
+    renderMetrics();
+    openDrawer(o);
+  }
+
+  /** 改编码表里的状态（后台没引 Auth，直接操作同一个 key） */
+  function patchCodeStatus(code, status) {
+    if (!code) return;
+    try {
+      var raw = localStorage.getItem('jw.codes.v2');
+      var codes = raw ? JSON.parse(raw) : {};
+      if (codes[code]) {
+        codes[code].status = status;
+        localStorage.setItem('jw.codes.v2', JSON.stringify(codes));
+      }
+    } catch (e) { /* 演示环境，存不进去不影响 */ }
+  }
+
   /** 抽屉里的「现场这一条」：照片 + 判定过程 */
   function liveSection(o) {
     var a = o.analysis || {};
@@ -5749,10 +6416,35 @@ window.Payout = (function () {
 
     return '<div class="dr-section">' +
       '<div class="dr-section-title">现场原始记录</div>' +
-      (o.photo ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>' : '') +
-      (o.summary ? '<div class="dr-note" style="margin-top:10px">“' + escapeHtml(o.summary) + '”</div>' : '') +
+      (o.photo
+        ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>'
+        : (D.photoRequired && !D.photoRequired(o.type)
+            ? '<div class="dr-note" style="margin-top:0">这一类允许不传照片（例如校园网故障），' +
+              '所以只有文字信息。判断时以描述为准，必要时电话联系上报人。</div>'
+            : '<div class="dr-note" style="margin-top:0;background:rgba(201,123,32,.08);border-color:rgba(201,123,32,.24)">' +
+              '<b>这张单没有上传照片</b>，而这一类本应附一张现场图。' +
+              '先看描述和上报人信用，必要时电话确认，别直接派人空跑。</div>')) +
+      (o.desc
+        ? '<div class="dr-rv-row" style="margin-top:10px"><span class="dr-rv-k">用户描述</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(o.desc) + '</span></div>'
+        : '') +
+      (o.summary
+        ? '<div class="dr-note" style="margin-top:8px">AI 摘要：' + escapeHtml(o.summary) + '</div>'
+        : '') +
+      (a.typeAdjusted && a.typeFrom
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">类型修正</span>' +
+          '<span class="dr-rv-v">用户点的是「' + escapeHtml(D.type(a.typeFrom).label) +
+          '」，AI 按内容改成「' + escapeHtml(D.type(a.typeTo || o.type).label) + '」</span></div>'
+        : '') +
+      (a.conflict
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">图文矛盾</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.conflictNote || '照片与描述不符') +
+          (a.conflictAction === 'kept' ? '（用户保留原描述）' : '（用户已采纳 AI 的版本）') +
+          '</span></div>'
+        : '') +
       '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
-        '<span class="dr-v">' + src + '</span></div>' +
+        '<span class="dr-v">' + src +
+        (a.review ? ' · 已标记人工复核' : '') + '</span></div>' +
       reviewTag +
       (a.seen
         ? '<div class="dr-seen"><span class="dr-seen-k">模型看到的</span>' +
@@ -5761,8 +6453,9 @@ window.Payout = (function () {
       (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
       '<div class="dr-note" style="margin-top:8px">' +
         (a.pass
-          ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，' +
-            '核实完点「办结并发分」。'
+          ? (a.source === 'deepseek'
+              ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，核实完点「办结并发分」。'
+              : '这条是本地规则引擎放行的（代理没启动），模型没有参与判断 —— 派单前建议先看一眼现场。')
           : '上报人选择的是「转人工」，所以这张单子没经过自动派单，' +
             '等人工确认后再分给班组。') +
       '</div>' +
@@ -5790,6 +6483,15 @@ window.Payout = (function () {
     $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
     $('#btnLiveClear').addEventListener('click', clearOrders);
     $('#btnLiveUndo').addEventListener('click', undoClear);
+
+    // 复核提示条上的「只看待复核」：等于点一下筛选里的那一项
+    var btnRv = $('#btnReviewOnly');
+    if (btnRv) {
+      btnRv.addEventListener('click', function () {
+        var b = $('#statusFilter [data-status="review"]');
+        if (b) b.click();
+      });
+    }
 
     // 热力图筛选
     $$('#heatFilter .seg-btn').forEach(function (b) {

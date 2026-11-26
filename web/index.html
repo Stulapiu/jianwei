@@ -114,7 +114,7 @@
               <div class="card-hd">
                 <div>
                   <div class="card-t">现场照片</div>
-                  <div class="card-s">选一张示意图，或把自己的照片拖进来</div>
+                  <div class="card-s" id="photoSub">选一张示意图，或把自己的照片拖进来</div>
                 </div>
                 <span class="tag tag--soft" id="photoState">未选择</span>
               </div>
@@ -125,6 +125,7 @@
                 <div class="dz-s">本地图片不会上传到任何服务器，只在浏览器里做质量分析</div>
                 <input type="file" id="fileInput" accept="image/*" hidden>
               </div>
+              <div class="card-s" id="photoTip" style="margin-top:9px"></div>
             </div>
 
             <div class="card">
@@ -136,6 +137,7 @@
                 <span class="tag tag--dept" id="deptTag" hidden></span>
               </div>
               <div class="types" id="typeList"></div>
+              <div class="type-sug" id="typeSuggest" hidden></div>
             </div>
 
             <div class="card">
@@ -166,6 +168,7 @@
               </div>
               <textarea id="descInput" maxlength="100" rows="3"
                         placeholder="例如：路灯不亮，晚上这段路完全黑的，骑车容易撞上"></textarea>
+              <div class="desc-sug" id="descSuggest" hidden></div>
             </div>
 
           </div>
@@ -191,6 +194,7 @@
               </ul>
               <button class="btn btn--primary btn--block" id="btnSubmit">提交上报</button>
               <div class="submit-hint" id="submitHint">还需要：照片、类型、位置</div>
+              <div class="pt-preview" id="ptPreview"></div>
             </div>
           </div>
         </div>
@@ -208,6 +212,7 @@
               <button class="seg-btn is-on" data-tstatus="all">全部</button>
               <button class="seg-btn" data-tstatus="pending">待派单</button>
               <button class="seg-btn" data-tstatus="processing">处理中</button>
+              <button class="seg-btn" data-tstatus="review">待复核</button>
               <button class="seg-btn" data-tstatus="resolved">已解决</button>
             </div>
           </div>
@@ -376,6 +381,15 @@
 
 <div class="toast-host" id="toastHost"></div>
 
+<!-- 图文矛盾确认 -->
+<div class="cfm" id="cfm" hidden>
+  <div class="cfm-card" role="dialog" aria-modal="true">
+    <div class="cfm-title">核对一下再提交</div>
+    <div class="cfm-sub">照片和你写的内容对不上，以照片为准整理了一版</div>
+    <div id="cfmBody"></div>
+  </div>
+</div>
+
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
 <script src="../shared/ledger.js"></script>
@@ -383,6 +397,7 @@
 <script src="../shared/rewards.js"></script>
 <script src="../shared/auth.js"></script>
 <script src="../shared/agent.js"></script>
+<script src="../shared/guard.js"></script>
 <script src="../shared/data.js"></script>
 <script src="../h5-web/assets/js/ui.js"></script>
 <script src="assets/web.js"></script>

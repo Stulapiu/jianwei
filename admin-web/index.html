@@ -268,6 +268,7 @@
             <button class="filter on" data-status="all">全部</button>
             <button class="filter" data-status="pending">待处理</button>
             <button class="filter" data-status="processing">处理中</button>
+            <button class="filter" data-status="review">待复核<em class="fc" id="filterReviewCount" hidden>0</em></button>
             <button class="filter" data-status="resolved">已完成</button>
           </div>
 
@@ -298,6 +299,21 @@
           <span class="spacer"></span>
           <span class="hint-inline">同人重复上报自动并入；多人报同一处会抬升优先级</span>
         </div>
+      </div>
+
+      <div class="card glass table-card review-bar" id="reviewBar" hidden>
+        <span class="rb-ic">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.6l7 2.5v5.5c0 4.4-2.9 7.4-7 8.8-4.1-1.4-7-4.4-7-8.8V6.1l7-2.5Z"/>
+            <path d="M12 8.6v3.6M12 15.4h.01"/>
+          </svg>
+        </span>
+        <div class="rb-main">
+          <b class="num" id="reviewCount">0</b> 条在等人工复核
+          <span class="rb-sub">画质存疑、用户主动转人工、图文对不上，都落在这一队</span>
+        </div>
+        <button class="rb-btn" id="btnReviewOnly">只看待复核</button>
       </div>
 
       <div class="card glass table-card">
@@ -336,7 +352,8 @@
           </div>
           <button class="btn btn-primary" id="btnWeekly">生成周报</button>
         </div>
-        <div class="ai-output empty" id="outWeekly">点击「生成周报」，产出一段 200 字左右的简报。</div>
+        <div class="ai-facts" id="weeklyFacts"></div>
+        <div class="ai-output empty" id="outWeekly">点击「生成周报」，AI 会读完本周数据后写一段简报。</div>
         <div class="ai-foot">
           <button class="btn btn-ghost" id="btnCopy">复制文本</button>
           <span class="ai-tag">AI 生成 · 建议人工核对后使用</span>
@@ -349,9 +366,10 @@
             <h3>AI 哨兵巡逻</h3>
             <p>从被动等报修转向主动巡查。基于历史高频故障点，生成下一条重点巡查路线。</p>
           </div>
-          <button class="btn btn-primary" id="btnPatrol">模拟巡逻</button>
+          <button class="btn btn-primary" id="btnPatrol">生成巡逻路线</button>
         </div>
-        <div class="ai-output empty" id="outPatrol">点击「模拟巡逻」，系统会结合高频点位给出路线建议。</div>
+        <div class="ai-facts" id="patrolFacts"></div>
+        <div class="ai-output empty" id="outPatrol">点击「生成巡逻路线」，AI 会按紧急度排出路线并说明每个点位看什么。</div>
         <div class="route" id="routeBox"></div>
       </div>
 
@@ -390,6 +408,7 @@
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
 <script src="../shared/payout.js"></script>
+<script src="../shared/insight.js"></script>
 <script src="assets/admin.js"></script>
 </body>
 </html>

@@ -112,6 +112,28 @@
   TYPES.forEach(function (t) { TYPE_MAP[t.id] = t; });
 
   /* ----------------------------------------------------------------------
+   * 二·补、哪些类型可以不拍照
+   * -------------------------------------------------------------------- */
+
+  /**
+   * 照片要求的判断标准只有一个：这张图能不能证明问题存在。
+   *
+   *   能证明 —— 井盖缺失、路灯不亮、垃圾满溢、护栏断裂、路面坑洼。
+   *             一张图能让后勤少跑一趟空路，所以必传。
+   *   证明不了 —— 校园网卡、断网、信号差、系统故障。
+   *             拍路由器指示灯是正常的，拍手机屏幕又不是"现场"，
+   *             逼着必传只会让人随便拍一张交差，反而污染工单。
+   *
+   * 所以这里不做"全都要"也不做"全不要"，按类型分开：
+   * 这两类改成选填，并在界面上写清楚"有图会更快解决"。
+   */
+  var PHOTO_OPTIONAL = { network: 1, other: 1 };
+
+  function photoRequired(typeId) {
+    return !PHOTO_OPTIONAL[typeId];
+  }
+
+  /* ----------------------------------------------------------------------
    * 三、优先级
    * -------------------------------------------------------------------- */
 
@@ -188,7 +210,9 @@
     },
     priorityOf: priorityOf,
     shouldMerge: shouldMerge,
-    mergedSeverity: mergedSeverity
+    mergedSeverity: mergedSeverity,
+    photoRequired: photoRequired,
+    PHOTO_OPTIONAL: PHOTO_OPTIONAL
   };
 
   if (typeof module === 'object' && module.exports) module.exports = D;

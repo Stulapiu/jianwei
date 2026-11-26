@@ -39,6 +39,9 @@
     lng: null,
     lat: null,
     located: false,
+    preview: null,        // 图片即时预判结果
+    previewing: false,
+    lastReject: null,
     tstatus: 'all',
     rwTab: 'lottery',     // 积分乐园：lottery | mall
     lgKind: 'points',     // 流水：points | credit
@@ -317,7 +320,9 @@
       b.addEventListener('click', function () {
         if (b.dataset.photo === '__local') return;
         state.photo = b.dataset.photo;
+        state.preview = null;
         renderShots();
+        renderSuggest();
         renderReportState();
       });
     });
@@ -341,11 +346,162 @@
     });
   }
 
+  /* ============================================================
+   * 即时识别（桌面版）
+   * ------------------------------------------------------------
+   * 和手机端同一套逻辑：本地图片一载入就送去认，认出来把候选类型
+   * 顶在类型区、把描述建议放在输入框下面。样例插画不送 —— 那是 SVG，
+   * 模型会正确地说"这不是照片"，反而添乱。
+   * ============================================================ */
+
+  let previewSeq = 0;
+
+  function runPreview() {
+    const src = state.photo;
+    if (!src || src.indexOf('data:') !== 0) { state.preview = null; renderSuggest(); return; }
+
+    const seq = ++previewSeq;
+    state.previewing = true;
+    renderSuggest({ loading: true });
+
+    const ag = getAgent();
+    ag.probe().then(function (st) {
+      if (seq !== previewSeq) return null;
+      if (st.mode !== 'deepseek') {
+        state.previewing = false;
+        state.preview = null;
+        renderSuggest({ offline: true });
+        return null;
+      }
+      return ag.preview({ image: src, type: state.type, desc: state.desc, address: state.addr });
+    }).then(function (res) {
+      if (seq !== previewSeq || !res) return;
+      state.previewing = false;
+      state.preview = res.ok ? res : null;
+      renderSuggest(res.ok ? {} : { offline: true });
+    }).catch(function () {
+      if (seq !== previewSeq) return;
+      state.previewing = false;
+      renderSuggest();
+    });
+  }
+
+  function renderSuggest(opt) {
+    opt = opt || {};
+    const boxT = $('#typeSuggest');
+    const boxD = $('#descSuggest');
+    if (!boxT || !boxD) return;
+
+    if (opt.loading) {
+      boxT.hidden = false;
+      boxT.innerHTML = '<div class="ts-head">' + UI.icon('spark', 13) + ' 正在认这张图…</div>' +
+        '<div class="ts-note">认出来会把类型顶上来，描述也能一键填入</div>';
+      boxD.hidden = true;
+      return;
+    }
+    if (opt.offline) {
+      boxT.hidden = false;
+      boxT.innerHTML = '<div class="ts-head">' + UI.icon('spark', 13) + ' 即时识别没连上</div>' +
+        '<div class="ts-note">本地代理没启动时无法识图，不影响提交；提交后仍会按文字判断</div>';
+      boxD.hidden = true;
+      return;
+    }
+
+    const p = state.preview;
+    if (!p) {
+      boxT.hidden = true;
+      boxT.innerHTML = '';
+      boxD.hidden = true;
+      boxD.innerHTML = '';
+      return;
+    }
+
+    if (p.isFacility === false) {
+      boxT.hidden = false;
+      boxT.innerHTML = '<div class="ts-head">' + UI.icon('alert', 13) + ' 这张里没看出设施问题</div>' +
+        '<div class="ts-note">如果确实要报，建议把镜头对准设施本身再拍一张</div>';
+      boxD.hidden = true;
+      return;
+    }
+
+    const label = D.TYPE_LABEL[p.type] || p.type;
+    const on = state.type === p.type;
+    boxT.hidden = false;
+    boxT.innerHTML =
+      '<div class="ts-head">' + UI.icon('spark', 13) + ' AI 看这张图，像是这一类</div>' +
+      '<div class="ts-chips"><button class="ts-chip" data-sug-type="' + p.type + '">' +
+        '<b>' + label + '</b>' + (on ? ' · 已选中' : '') +
+      '</button></div>' +
+      '<div class="ts-note">认错了直接改上面的类型就行，不用管它</div>';
+
+    const btn = boxT.querySelector('[data-sug-type]');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        state.type = btn.dataset.sugType;
+        renderTypes();
+        renderReportState();
+        renderSuggest();
+        toast('已换成「' + label + '」', 'ok');
+      });
+    }
+
+    if (p.desc) {
+      boxD.hidden = false;
+      boxD.innerHTML =
+        '<span class="ds-ic">' + UI.icon('spark', 14) + '</span>' +
+        '<div class="ds-main"><div class="ds-k">你可能想上报</div>' +
+        '<div class="ds-t">' + UI.escapeHtml(p.desc) + '</div></div>' +
+        '<span class="ds-use">填入</span>';
+      boxD.onclick = function () { applySuggestedDesc(p.desc); };
+    } else {
+      boxD.hidden = true;
+    }
+  }
+
+  function applySuggestedDesc(text) {
+    const cur = (state.desc || '').trim();
+    state.desc = (cur ? (cur.indexOf(text) >= 0 ? cur : cur + '；' + text) : text).slice(0, 100);
+    $('#descInput').value = state.desc;
+    $('#descCount').textContent = state.desc.length;
+    renderReportState();
+    toast('已填入描述，可以再改', 'ok');
+  }
+
+  function photoRequired() {
+    return window.Domain && Domain.photoRequired ? Domain.photoRequired(state.type) : true;
+  }
+
+  function descTooShort() {
+    return (state.desc || '').trim().length < 4;
+  }
+
+  function canSubmit() {
+    if (!state.type || !state.located) return false;
+    if (photoRequired() && !state.photo) return false;
+    if (!state.photo && descTooShort()) return false;
+    return true;
+  }
+
   function renderReportState() {
     $('#photoState').textContent = state.photo
       ? (PHOTOS.filter((x) => x.kind === state.photo)[0] || { cap: '本地图片' }).cap
-      : '未选择';
+      : (photoRequired() ? '未选择' : '可不上传');
     $('#photoState').className = 'tag ' + (state.photo ? 'tag--ok' : 'tag--soft');
+
+    const photoSub = $('#photoSub');
+    if (photoSub) {
+      photoSub.textContent = photoRequired()
+        ? '这一类需要一张现场照片，后勤才能直接派人'
+        : '这一类可以不传照片；有图会更快解决，也能少一次电话确认';
+    }
+    const photoTip = $('#photoTip');
+    if (photoTip) {
+      photoTip.textContent = state.photo
+        ? ''
+        : (photoRequired()
+            ? '没有图，工单只能按文字派单，班组往往要先跑一趟确认位置'
+            : '上传图片能够更快解决问题：后勤看到现场，就不用先打电话问你在哪');
+    }
 
     const deptTag = $('#deptTag');
     if (state.type) {
@@ -364,11 +520,43 @@
     }
 
     const miss = [];
-    if (!state.photo) miss.push('照片');
     if (!state.type) miss.push('类型');
     if (!state.located) miss.push('位置');
-    $('#submitHint').textContent = miss.length ? '还需要：' + miss.join('、') : '齐了，可以提交';
-    $('#btnSubmit').setAttribute('aria-disabled', miss.length ? 'true' : 'false');
+    if (photoRequired() && !state.photo) miss.push('照片');
+    if (!state.photo && descTooShort()) miss.push('一句描述');
+
+    const g = window.Guard ? Guard.remain() : null;
+    let hint;
+    if (g && g.coolLeft > 0) {
+      hint = '连续几次没识别通过，先歇 ' + Math.ceil(g.coolLeft / 60) + ' 分钟再报';
+    } else if (miss.length) {
+      hint = '还需要：' + miss.join('、');
+    } else {
+      hint = '齐了，可以提交';
+    }
+    $('#submitHint').textContent = hint;
+    $('#btnSubmit').setAttribute('aria-disabled', canSubmit() ? 'false' : 'true');
+
+    renderPtPreview();
+  }
+
+  /**
+   * 右栏的积分预估。
+   * 手机端是一条横向档位条，桌面这栏窄，改成三行文字更省地方：
+   * 这一单大概多少、按什么算、什么时候到账。
+   */
+  function renderPtPreview() {
+    const box = $('#ptPreview');
+    if (!box) return;
+    if (!window.Payout || !state.type) {
+      box.innerHTML = '选好类型后，这里会算出这一单值多少积分';
+      return;
+    }
+    const pts = Payout.estimate({ severity: 3, type: state.type, kind: 'solo' });
+    const hot = Payout.estimate({ severity: 5, type: state.type, kind: 'solo' });
+    box.innerHTML =
+      '这一单约 <b>' + pts + '</b> 积分（3 星基准），最急的情况 <b>' + hot + '</b> 分。' +
+      '<br>AI 认了不算，后勤到场核实并办结后才到账。';
   }
 
   function pickLocation(lng, lat, name) {
@@ -430,13 +618,31 @@
   }
 
   async function submit() {
-    if (!state.photo || !state.type || !state.located) {
+    if (!canSubmit()) {
       const miss = [];
-      if (!state.photo) miss.push('照片');
       if (!state.type) miss.push('类型');
       if (!state.located) miss.push('位置');
+      if (photoRequired() && !state.photo) miss.push('照片');
+      if (!state.photo && descTooShort()) miss.push('一句描述');
       toast('还差：' + miss.join('、'));
       return;
+    }
+
+    /* 照片指纹：判"同一张图反复用"。
+       只给真传的图算 —— 示意图是所有人共用的素材，算出来必然一样，
+       拿它去拦人等于把演示路径堵死。算不出就跳过，不因为技术原因挡人。 */
+    let photoHash = null;
+    if (window.Guard && Guard.hashImage && state.photo
+        && state.photo.indexOf('data:') === 0) {
+      photoHash = await Guard.hashImage(state.photo);
+    }
+
+    /* 防刷：和手机端共用 Guard，同一台设备两边一起算额度 */
+    if (window.Guard) {
+      const g = Guard.check({
+        type: state.type, lng: state.lng, lat: state.lat, photoHash: photoHash
+      });
+      if (!g.ok) { toast(g.message, 'warn'); renderReportState(); return; }
     }
 
     const btn = $('#btnSubmit');
@@ -448,7 +654,7 @@
 
     const steps = [
       { text: '检查照片清晰度与曝光', cls: 'run' },
-      { text: '核对描述与所选类型是否一致' },
+      { text: '看图确认问题类型与描述', cls: '' },
       { text: '生成严重度与处置建议' },
       { text: '匹配责任部门与合并判断' }
     ];
@@ -463,7 +669,7 @@
     }, st.mode === 'deepseek' ? 520 : 300);
 
     const v = await ag.judge({
-      image: photoForAgent(state.photo),
+      image: state.photo ? photoForAgent(state.photo) : '',
       type: state.type,
       desc: state.desc,
       address: state.addr,
@@ -479,9 +685,39 @@
     setSteps(steps);
 
     if (!v.pass) {
-      showReject(v);
+      if (window.Guard) Guard.noteReject();
       btn.setAttribute('aria-disabled', 'false');
+      showReject(v);
       return;
+    }
+    if (window.Guard) Guard.notePass();
+
+    /* 类型点错：静默改成 AI 认出来的那一类。
+       用户点错按钮很常见，为此驳回一次等于让他重填整表。 */
+    let typeFrom = null;
+    if (v.type && v.type !== state.type) {
+      typeFrom = state.type;
+      state.type = v.type;
+      renderTypes();
+      renderReportState();
+    }
+
+    /* 图文矛盾：这才是需要用户点头的情况，按图片整理一版让他确认 */
+    let conflictAction = '';
+    if (v.conflict) {
+      const act = await askConflict(v, typeFrom || state.type);
+      if (act === 'cancel') { btn.setAttribute('aria-disabled', 'false'); return; }
+      if (act === 'apply') {
+        state.type = v.type || state.type;
+        state.desc = (v.suggestDesc || '').slice(0, 100);
+        $('#descInput').value = state.desc;
+        $('#descCount').textContent = state.desc.length;
+        renderTypes();
+        renderReportState();
+        conflictAction = 'applied';
+      } else {
+        conflictAction = 'kept';
+      }
     }
 
     const merge = checkMerge();
@@ -509,7 +745,32 @@
       kind: kind,
       estPoints: estPoints,
       ownerId: s ? s.id : A.deviceId(),
-      ownerKind: s ? s.kind : 'guest'
+      ownerKind: s ? s.kind : 'guest',
+      // 这三项以前网页版根本没存，后台现场模式看到的就是一张没图的空单
+      photo: (state.photo && state.photo.indexOf('data:') === 0) ? state.photo : null,
+      desc: state.desc || '',
+      analysis: {
+        pass: true,
+        source: v.source || (st.mode === 'deepseek' ? 'deepseek' : 'rules'),
+        reason: null,
+        summary: v.summary || '',
+        advice: v.advice || '',
+        soft: !!v.qualityHint,
+        qualityHint: v.qualityHint || null,
+        review: !!v.review,
+        seen: v.seen || '',
+        sawImage: !!v.sawImage,
+        metrics: v.metrics || null,
+        severity: severity,
+        latency: v.latency || 0,
+        typeAdjusted: !!(v.typeAdjusted || typeFrom),
+        typeFrom: typeFrom || v.typeFrom || null,
+        typeTo: state.type,
+        conflict: !!v.conflict,
+        conflictAction: conflictAction || '',
+        conflictNote: v.conflictNote || '',
+        noPhoto: !state.photo
+      }
     });
 
     // 这一步只结信用与权重，积分要等后勤办结（见 payout.js）
@@ -522,7 +783,7 @@
       code: ticket.code,
       type: state.type,
       addr: state.addr,
-      status: 'pending',
+      status: (v.review ? 'review' : 'pending'),
       at: Date.now(),
       photo: state.photo,
       severity: severity,
@@ -530,9 +791,65 @@
       dept: dept.name
     });
 
+    if (window.Guard) {
+      Guard.record({
+        type: state.type, lng: state.lng, lat: state.lat,
+        code: ticket.code, photoHash: photoHash
+      });
+    }
+
     showPass(v, merge, ticket, reward, severity);
     renderMe();
+    renderReportState();
     btn.setAttribute('aria-disabled', 'false');
+  }
+
+  /**
+   * 图文矛盾确认（桌面弹窗）。
+   * 只在一个时候弹：描述和照片说的是两件事。类型点错不弹，AI 自己改完就行。
+   */
+  function askConflict(v, origType) {
+    return new Promise(function (resolve) {
+      const host = $('#cfm');
+      const body = $('#cfmBody');
+      const fromType = D.TYPE_LABEL[origType || state.type] || '未选择';
+      const toType = D.TYPE_LABEL[v.type] || fromType;
+
+      body.innerHTML =
+        '<div class="cfm-lead">照片和你写的内容对不上，以照片为准整理了一版，确认一下再提交。</div>' +
+        '<div class="cfm-cols">' +
+          '<div class="cfm-col"><div class="cfm-k">你填的</div>' +
+            '<div class="cfm-type">' + UI.escapeHtml(fromType) + '</div>' +
+            '<div class="cfm-desc">' + UI.escapeHtml((state.desc || '').trim() || '（没有描述）') + '</div></div>' +
+          '<div class="cfm-col is-ai"><div class="cfm-k">照片里是</div>' +
+            '<div class="cfm-type">' + UI.escapeHtml(toType) + '</div>' +
+            '<div class="cfm-desc">' + UI.escapeHtml(v.suggestDesc || '') + '</div></div>' +
+        '</div>' +
+        (v.conflictNote ? '<div class="cfm-why">' + UI.escapeHtml(v.conflictNote) + '</div>' : '') +
+        '<div class="cfm-acts">' +
+          '<button class="btn btn--ghost" data-cfm="keep">保留我写的</button>' +
+          '<button class="btn btn--primary" data-cfm="apply">按这版提交</button>' +
+        '</div>' +
+        '<button class="cfm-cancel" data-cfm="cancel">先不报，我改一下</button>';
+
+      host.hidden = false;
+
+      function done(act) {
+        host.hidden = true;
+        host.removeEventListener('click', onClick);
+        document.removeEventListener('keydown', onKey);
+        resolve(act);
+      }
+      function onClick(e) {
+        const b = e.target.closest('[data-cfm]');
+        if (b) { done(b.dataset.cfm); return; }
+        if (e.target === host) done('cancel');
+      }
+      function onKey(e) { if (e.key === 'Escape') done('cancel'); }
+
+      host.addEventListener('click', onClick);
+      document.addEventListener('keydown', onKey);
+    });
   }
 
   function checkMerge() {
@@ -631,6 +948,10 @@
               '，合计 <b>' + bd.points + '</b> 分。' : '') +
           '</div>' +
           '<div class="ctx-note">' +
+            (v.review
+              ? '<b>这张单会先过人工复核。</b>画质存疑的单子先进复核队列，管理员确认现场后照常派单，' +
+                '不扣信用分，处理完积分照发。<br>'
+              : '') +
             (merge.merged
               ? (merge.kind === 'crowd'
                   ? '这个位置 ' + merge.distance + ' 米内已有 <b>' + (merge.reporters - 1) + ' 人</b>报过，' +
@@ -639,7 +960,9 @@
                       ? '，紧急度从 <b>' + merge.severityBefore + ' 星</b>抬到 <b>' + merge.severityAfter + ' 星</b>'
                       : '，紧急度已在最高档')
                   : '你之前报过这处，这次并入原工单，不重复开单，也不影响紧急度')
-              : 'AI 建议：' + UI.escapeHtml(v.advice || '已进入待派单池，按类型自动分派')) +
+              : (v.advice
+                  ? 'AI 建议：' + UI.escapeHtml(v.advice)
+                  : '已进入待派单池，按类型自动分派（AI 未接入，本条没有生成建议）')) +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -660,13 +983,16 @@
   }
 
   function showReject(v) {
+    state.lastReject = v;
     const reason = {
+      blank: '画面里没有可辨识的内容',
+      blackout: '照片几乎全黑',
       blur: '画面不够清晰',
       dark: '照片太暗',
       overexposed: '照片过曝',
       flat: '疑似截图或纯色图',
       'non-facility': '没识别到公共设施',
-      mismatch: '描述与所选类型不一致'
+      'no-info': '没有照片，描述也太短'
     }[v.reason] || '信息不足';
 
     showResult(
@@ -707,7 +1033,7 @@
       hideResult();
     });
 
-    $('#resForce').addEventListener('click', function () {
+    $('#resForce').addEventListener('click', async function () {
       const s = A.get();
       const dept = Domain.deptFor(state.type);
       const sev = v.severity || 2;
@@ -718,9 +1044,38 @@
         type: state.type, addr: state.addr, lng: state.lng, lat: state.lat,
         dept: dept.name, severity: sev, merged: false, reporters: 1,
         kind: 'review', estPoints: estPts,
-        ownerId: s ? s.id : A.deviceId(), ownerKind: s ? s.kind : 'guest'
+        ownerId: s ? s.id : A.deviceId(), ownerKind: s ? s.kind : 'guest',
+        // 复核要看原图和原话，否则"转人工"等于把单子丢进黑箱
+        photo: (state.photo && state.photo.indexOf('data:') === 0) ? state.photo : null,
+        desc: state.desc || '',
+        analysis: {
+          pass: false,
+          source: v.source || 'rules',
+          reason: v.reason || null,
+          message: v.message || '',
+          detail: v.detail || '',
+          seen: v.seen || '',
+          sawImage: !!v.sawImage,
+          metrics: v.metrics || null,
+          review: true,
+          manual: true,
+          noPhoto: !state.photo
+        }
       });
       A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
+
+      if (window.Guard) {
+        // 转人工也要落指纹，否则"AI 拦下 → 转人工"就成了绕开同图判重的口子
+        let fh = null;
+        if (Guard.hashImage && state.photo && state.photo.indexOf('data:') === 0) {
+          fh = await Guard.hashImage(state.photo);
+        }
+        Guard.record({
+          type: state.type, lng: state.lng, lat: state.lat,
+          code: tk.code, photoHash: fh
+        });
+      }
+
       state.tickets.unshift({
         code: tk.code, type: state.type, addr: state.addr, status: 'review',
         at: Date.now(), photo: state.photo, severity: sev, estPoints: estPts, dept: dept.name
@@ -750,15 +1105,17 @@
     state.photo = null;
     state.type = '';
     state.desc = '';
+    state.preview = null;
     $('#descInput').value = '';
     $('#descCount').textContent = '0';
     hideResult();
     renderShots();
     renderTypes();
+    renderSuggest();
     renderReportState();
     setSteps([
       { text: '检查照片清晰度与曝光' },
-      { text: '核对描述与所选类型是否一致' },
+      { text: '看图确认问题类型与描述' },
       { text: '生成严重度与处置建议' },
       { text: '匹配责任部门与合并判断' }
     ]);
@@ -773,7 +1130,8 @@
     const fromAuth = A.myTickets().map(function (t) {
       return {
         code: t.code, type: t.type, addr: t.addr, status: t.status,
-        at: t.at, severity: t.severity, dept: t.dept, photo: 'trash'
+        at: t.at, severity: t.severity, dept: t.dept,
+        photo: t.photo || PHOTO_BY_TYPE[t.type] || 'trash'
       };
     });
     const seen = {};
@@ -1249,6 +1607,8 @@
     $('#descInput').addEventListener('input', function (e) {
       state.desc = e.target.value.slice(0, 100);
       $('#descCount').textContent = state.desc.length;
+      // 不传图时靠描述判断能不能提交
+      renderReportState();
     });
 
     // 拖拽照片
@@ -1278,6 +1638,7 @@
         renderShots();
         renderReportState();
         toast('已载入本地图片 · 只在浏览器里分析');
+        runPreview();
       };
       fr.readAsDataURL(file);
     }
@@ -1356,6 +1717,7 @@
     initMap();
     renderShots();
     renderTypes();
+    renderSuggest();
     renderReportState();
     renderQuery('');
     renderMe();

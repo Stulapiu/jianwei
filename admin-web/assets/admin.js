@@ -745,8 +745,8 @@
         list.sort(function (a, b) {
           // 已完成的沉到底部：管理端最关心的是「还没处理的里哪个最急」，
           // 把昨天的 P0 已完成工单钉在最上面只会碍事
-          var da = a.status === 'resolved' ? 1 : 0;
-          var db = b.status === 'resolved' ? 1 : 0;
+          var da = (a.status === 'resolved' || a.status === 'rejected') ? 1 : 0;
+          var db = (b.status === 'resolved' || b.status === 'rejected') ? 1 : 0;
           return da - db ||
                  b.severity - a.severity ||
                  a.createdAt - b.createdAt;      // 同优先级时先报的先处理
@@ -774,6 +774,21 @@
 
   function renderOrders() {
     var list = filteredOrders();
+
+    /* 待复核队列单独立一块。
+       这类单子既不是"待处理"也不是"处理中"，混在全部里很容易被漏掉；
+       而它们恰恰是最需要人看一眼的：AI 没把握、或者用户自己要求人工。 */
+    var reviewN = ORDERS.filter(function (o) { return o.status === 'review'; }).length;
+    var rvBar = $('#reviewBar');
+    if (rvBar) {
+      rvBar.hidden = !reviewN;
+      $('#reviewCount').textContent = reviewN;
+    }
+    var rvBadge = $('#filterReviewCount');
+    if (rvBadge) {
+      rvBadge.textContent = reviewN;
+      rvBadge.hidden = !reviewN;
+    }
 
     var mergedGroups = list.filter(function (o) {
       var uniq = {};
@@ -809,7 +824,7 @@
       var statusCls = 'status-' + o.status;
       var statusLabel = {
         pending: '待处理', processing: '处理中',
-        resolved: '已完成', review: '待复核'
+        resolved: '已完成', review: '待复核', rejected: '已驳回'
       }[o.status] || '待处理';
 
       return '<tr data-id="' + o.id + '">' +
@@ -861,10 +876,12 @@
         '<td><span class="status ' + statusCls + '"><i></i>' + statusLabel + '</span></td>' +
         '<td>' +
           '<div class="ops">' +
-            (o.status === 'pending' || o.status === 'review'
-              ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
-              : '') +
-            (o.status !== 'resolved'
+            (o.status === 'review'
+              ? '<button class="op op-primary" data-act="review" data-id="' + o.id + '">复核</button>'
+              : (o.status === 'pending'
+                  ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
+                  : '')) +
+            (o.status !== 'resolved' && o.status !== 'rejected'
               ? '<button class="op op-done" data-act="done" data-id="' + o.id + '" ' +
                   'title="办结并向上报人发放积分">办结</button>'
               : '') +
@@ -909,7 +926,7 @@
         var id = b.dataset.id;
         var act = b.dataset.act;
 
-        if (act === 'detail') {
+        if (act === 'detail' || act === 'review') {
           var o = ORDERS.filter(function (x) { return x.id === id; })[0];
           if (o) openDrawer(o);
           return;
@@ -1114,35 +1131,97 @@
     }, 16);
   }
 
+  /* ======================================================================
+   * AI 洞察
+   * ----------------------------------------------------------------------
+   * 数字由本地算，判断交给模型。
+   * 模型没连上时不生成"看起来像 AI 写的"文本 —— 那是最坏的一种假：
+   * 数据是真的，结论是编的。宁可明说没连上。
+   * ==================================================================== */
+
+  function factsHTML(items) {
+    return items.map(function (x) {
+      return '<div class="f-item' + (x.tone ? ' is-' + x.tone : '') + '">' +
+        '<b class="num">' + x.v + '</b><span>' + x.k + '</span></div>';
+    }).join('');
+  }
+
+  function aiFailHTML(what) {
+    return '<div class="ai-fail">' +
+      '<b>AI 没有连上，' + what + '没有生成</b>' +
+      '<span>本地代理没启动时，后台不会用固定模板假装是 AI 写的。启动方式：</span>' +
+      '<code>set DEEPSEEK_API_KEY=sk-xxxx</code><code>node server/proxy.mjs</code>' +
+      '<span>上面的数字是真的，可以直接用；下面这段判断等模型接上再来。</span>' +
+    '</div>';
+  }
+
   function bindInsight() {
     $('#btnWeekly').addEventListener('click', function () {
       var pending = pendingList();
       var done = ORDERS.filter(function (o) { return o.status === 'resolved'; }).length;
       var total = ORDERS.length;
-      var rate = Math.round(done / total * 100);
+      var rate = total ? Math.round(done / total * 100) : 0;
       var validTotal = total + BLOCK_LOG.length;
-      var blockRate = Math.round(BLOCK_LOG.length / validTotal * 100);
+      var blockRate = validTotal ? Math.round(BLOCK_LOG.length / validTotal * 100) : 0;
       var p0 = pending.filter(function (o) { return o.severity >= 5; }).length;
 
-      var byArea = {};
+      // 片区聚合：按累计紧急度排，不按条数 —— 一个 P0 比三个 P3 更值得写进周报
+      var areaMap = {};
       pending.forEach(function (o) {
-        var area = areaOf(o.address);
-        byArea[area] = (byArea[area] || 0) + 1;
+        var a = areaOf(o.address);
+        if (!areaMap[a]) areaMap[a] = { name: a, n: 0, score: 0 };
+        areaMap[a].n++;
+        areaMap[a].score += o.severity;
       });
-      var top = Object.keys(byArea).sort(function (a, b) { return byArea[b] - byArea[a]; })[0] || '图书馆片区';
+      var areas = Object.keys(areaMap).map(function (k) { return areaMap[k]; })
+        .sort(function (a, b) { return b.score - a.score; }).slice(0, 3);
 
-      var text =
-        '本周（11 月 18 日 — 11 月 24 日）郑州大学主校区共接收设施问题上报 ' + validTotal + ' 条，' +
-        'AI 前置拦截无效信息 ' + BLOCK_LOG.length + ' 条（' + blockRate + '%），' +
-        '主要原因是照片模糊与非设施内容，拦截质量稳定，未见明显误拦投诉。\n\n' +
-        '有效工单 ' + total + ' 条，已完成 ' + done + ' 条，处理率 ' + rate + '%。' +
-        '当前待处理 ' + pending.length + ' 条，其中紧急（P0）' + p0 + ' 条，已全部通知负责班组。' +
-        '高频区域集中在' + top + '，建议下周把该片区纳入日常巡查路线。\n\n' +
-        '提示：照明类问题连续三周位居前二，且多集中在老旧线路区段，' +
-        '建议由后勤保障部水电班组牵头做一次线路专项排查，比逐点换灯更省事。';
+      var typeMap = {};
+      pending.forEach(function (o) { typeMap[o.type] = (typeMap[o.type] || 0) + 1; });
+      var types = Object.keys(typeMap).map(function (k) {
+        return { label: D.type(k).label, n: typeMap[k] };
+      }).sort(function (a, b) { return b.n - a.n; }).slice(0, 4);
 
-      typewriter($('#outWeekly'), text);
-      toast('周报已生成，可直接复制', 'ok');
+      var repeats = ORDERS.filter(function (o) { return repeatOf(o) >= 2; })
+        .slice(0, 3)
+        .map(function (o) { return { address: o.address, n: repeatOf(o) }; });
+
+      var data = {
+        total: total, valid: total, done: done, rate: rate,
+        blocked: BLOCK_LOG.length, blockRate: blockRate,
+        pending: pending.length, p0: p0,
+        rejected: ORDERS.filter(function (o) { return o.status === 'rejected'; }).length,
+        areas: areas, types: types, repeats: repeats
+      };
+
+      $('#weeklyFacts').innerHTML = factsHTML([
+        { v: validTotal, k: '本周上报' },
+        { v: BLOCK_LOG.length, k: 'AI 拦截' },
+        { v: done, k: '已办结' },
+        { v: pending.length, k: '待处理' },
+        { v: p0, k: 'P0 紧急', tone: p0 ? 'warn' : '' }
+      ]);
+
+      var out = $('#outWeekly');
+      var btn = $('#btnWeekly');
+      out.classList.remove('empty');
+      out.textContent = 'AI 正在读这一周的数据…';
+      btn.disabled = true;
+
+      if (!window.Insight) {
+        out.innerHTML = aiFailHTML('周报');
+        btn.disabled = false;
+        return;
+      }
+
+      Insight.weekly(data).then(function (r) {
+        typewriter(out, r.text);
+        toast('周报已生成 · ' + Math.round(r.latency / 100) / 10 + 's', 'ok');
+      }).catch(function () {
+        out.innerHTML = aiFailHTML('周报');
+      }).then(function () {
+        btn.disabled = false;
+      });
     });
 
     $('#btnCopy').addEventListener('click', function () {
@@ -1170,33 +1249,75 @@
       });
 
       var stops = Object.keys(byArea).map(function (k) {
-        return { name: k, n: byArea[k].n, score: byArea[k].score, types: byArea[k].types };
+        var uniq = byArea[k].types.filter(function (t, i, a) { return a.indexOf(t) === i; });
+        return { name: k, n: byArea[k].n, score: byArea[k].score, types: uniq };
       }).sort(function (a, b) { return b.score - a.score; }).slice(0, 5);
 
-      var text = '本周建议重点巡查 ' + stops.length + ' 个点位。' +
-        '顺序按「紧急度累加」排，而不是按上报条数——' +
-        '一个井盖缺失比三处草坪问题更该先到。' +
-        '建议两人一组，从' + (stops[0] ? stops[0].name : '图书馆周边') + '出发，沿主干道向南推进，预计 90 分钟完成。';
+      $('#patrolFacts').innerHTML = factsHTML([
+        { v: stops.length, k: '建议点位' },
+        { v: stops.reduce(function (n, s) { return n + s.n; }, 0), k: '覆盖工单' },
+        { v: stops.reduce(function (n, s) { return n + s.score; }, 0), k: '累计紧急度' }
+      ]);
 
-      typewriter($('#outPatrol'), text);
+      var out = $('#outPatrol');
+      var box = $('#routeBox');
+      var btn = $('#btnPatrol');
 
-      $('#routeBox').innerHTML = stops.map(function (s, i) {
-        var uniq = s.types.filter(function (t, k) { return s.types.indexOf(t) === k; });
-        return '<div class="route-stop">' +
-          '<span class="route-num">' + (i + 1) + '</span>' +
-          '<div class="route-main">' +
-            '<div class="route-name">' + escapeHtml(s.name) + '</div>' +
-            '<div class="route-why">' + uniq.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score + '</div>' +
-          '</div>' +
-          '<span class="route-gap">' + s.n + ' 条</span>' +
-        '</div>';
-      }).join('');
+      if (!stops.length) {
+        out.classList.remove('empty');
+        out.textContent = '当前没有待处理工单，不需要安排巡查。';
+        box.innerHTML = '';
+        return;
+      }
 
-      toast('巡逻路线已生成', 'ok');
+      function paintRoute(whys, intro, tip) {
+        box.innerHTML = stops.map(function (s, i) {
+          return '<div class="route-stop">' +
+            '<span class="route-num">' + (i + 1) + '</span>' +
+            '<div class="route-main">' +
+              '<div class="route-name">' + escapeHtml(s.name) + '</div>' +
+              '<div class="route-why">' + escapeHtml(whys[i] || (s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score)) + '</div>' +
+            '</div>' +
+            '<span class="route-gap">' + s.n + ' 条</span>' +
+          '</div>';
+        }).join('') + (tip ? '<div class="route-tip">' + escapeHtml(tip) + '</div>' : '');
+      }
+
+      out.classList.remove('empty');
+      out.textContent = 'AI 正在排这条路线…';
+      paintRoute([], '', '');
+      btn.disabled = true;
+
+      if (!window.Insight) {
+        out.innerHTML = aiFailHTML('巡逻路线');
+        paintRoute(stops.map(function (s) {
+          return s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score;
+        }), '', '');
+        btn.disabled = false;
+        return;
+      }
+
+      Insight.patrol({ stops: stops }).then(function (r) {
+        var whys = [];
+        (r.stops || []).forEach(function (s) {
+          whys[typeof s.i === 'number' ? s.i : 0] = s.why || '';
+        });
+        typewriter(out, r.intro || '');
+        paintRoute(whys, r.intro, r.tip);
+      }).catch(function () {
+        out.innerHTML = aiFailHTML('巡逻建议');
+        paintRoute(stops.map(function (s) {
+          return s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score;
+        }), '', '');
+      }).then(function () {
+        btn.disabled = false;
+      });
     });
 
     $('#btnMergeAi').addEventListener('click', function () { renderMergeAdvice(true); });
   }
+
+  var mergeSeq = 0;
 
   function renderMergeAdvice(animate) {
     // 找「同一位置 + 同类型」但被拆成多条工单的情况
@@ -1272,61 +1393,92 @@
       return;
     }
 
-    box.innerHTML = sug.slice(0, 4).map(function (s) {
-      var t = s.type ? D.type(s.type) : null;
-      var title, desc;
-      if (s.deptWide) {
-        title = '检测到' + s.area + '有 ' + s.n + ' 条待办，建议安排一次集中出勤';
-        desc = '涉及 ' + s.reports + ' 次上报，类型分散。同一位师傅跑一趟能处理完，比分三次出勤省 2 小时车程。';
-      } else if (s.crossType) {
-        var tset = s.orders.map(function (o) { return D.type(o.type).label; })
-          .filter(function (v, i, a) { return a.indexOf(v) === i; });
-        title = s.area + '有 ' + s.n + ' 处不同类型的问题，建议一次出勤顺路处理';
-        desc = '涉及' + tset.slice(0, 3).join('、') + '。虽然分属不同班组，但物理距离在 200 米内，可以协调同日上门。';
-      } else {
-        title = '检测到' + s.area + '有 ' + s.n + ' 条' + t.label + '工单，建议合并为一次集中检修';
-        desc = '共 ' + s.reports + ' 次上报，' + (s.orders[0].severity >= 4
-          ? '其中包含高优先级工单，建议优先安排。'
-          : '紧急度中等，可与其他任务合并出行。');
-      }
+    var groups = sug.slice(0, 4).map(function (s) {
+      var set = s.orders.map(function (o) { return D.type(o.type).label; })
+        .filter(function (v, i, a) { return a.indexOf(v) === i; });
+      return {
+        area: s.area,
+        n: s.n,
+        reports: s.reports,
+        types: set,
+        deptWide: !!s.deptWide,
+        ids: s.orders.map(function (o) { return o.id; })
+      };
+    });
 
-      return '<div class="merge-sug">' +
-        '<div class="merge-sug-ico">' +
-          '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M5 8h6M5 16h6M13 8h6M13 16h6"/><path d="M11 8l2 8M13 8l-2 8"/>' +
-          '</svg>' +
-        '</div>' +
-        '<div class="merge-sug-main">' +
-          '<div class="merge-sug-title">' + escapeHtml(title) + '</div>' +
-          '<div class="merge-sug-desc">' + escapeHtml(desc) + '</div>' +
-        '</div>' +
-        '<button class="op" data-merge-do="' + encodeURIComponent(s.orders.map(function (o) { return o.id; }).join(',')) + '">执行合并</button>' +
-      '</div>';
-    }).join('');
-
-    $$('[data-merge-do]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var ids = decodeURIComponent(b.dataset.mergeDo).split(',');
-        var first = ids[0];
-        var others = ids.slice(1);
-
-        // 合并：除了保留的那条，其余标记为已合并并从待处理里移除
-        others.forEach(function (id) {
-          var o = ORDERS.filter(function (x) { return x.id === id; })[0];
-          var main = ORDERS.filter(function (x) { return x.id === first; })[0];
-          if (!o || !main) return;
-          main.reports = main.reports.concat(o.reports);
-          main.severity = Math.max(main.severity, o.severity);
-          o.mergedInto = first;
-          o.status = 'resolved';
-        });
-
-        renderOrders();
-        renderMetrics();
-        renderDispatch();
-        renderMergeAdvice();
-        toast('已合并 ' + others.length + ' 条工单，上报记录已归并', 'ok');
+    /* 先把"在哪、几条、什么类型"这些确定的东西画出来，
+       再让模型补"为什么值得合并"。模型挂了也不至于一片空白。 */
+    function paint(items, state) {
+      var byI = {};
+      (items || []).forEach(function (it) {
+        var k = (typeof it.i === 'number') ? it.i : 0;
+        byI[k] = it;
       });
+      box.innerHTML = groups.map(function (g, i) {
+        var it = byI[i] || null;
+        var title = it && it.title
+          ? it.title
+          : (g.area + ' · ' + g.n + ' 条' + (g.types.length ? '（' + g.types.slice(0, 2).join(' / ') + '）' : ''));
+        var desc = it && it.desc
+          ? it.desc
+          : (state === 'fail'
+              ? 'AI 未接入，这一组只按位置聚类，不构成建议。启动本地代理后可生成判断。'
+              : '正在判断这一组值不值得合并…');
+        return '<div class="merge-sug' + (state === 'loading' ? ' is-loading' : '') + '">' +
+          '<div class="merge-sug-ico">' +
+            '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M5 8h6M5 16h6M13 8h6M13 16h6"/><path d="M11 8l2 8M13 8l-2 8"/>' +
+            '</svg>' +
+          '</div>' +
+          '<div class="merge-sug-main">' +
+            '<div class="merge-sug-title">' + escapeHtml(title) + '</div>' +
+            '<div class="merge-sug-desc">' + escapeHtml(desc) + '</div>' +
+          '</div>' +
+          '<button class="op" data-merge-do="' + encodeURIComponent(g.ids.join(',')) + '">执行合并</button>' +
+        '</div>';
+      }).join('');
+      bindMergeButtons();
+    }
+
+    function bindMergeButtons() {
+      $$('[data-merge-do]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var ids = decodeURIComponent(b.dataset.mergeDo).split(',');
+          var first = ids[0];
+          var others = ids.slice(1);
+
+          // 合并：除了保留的那条，其余标记为已合并并从待处理里移除
+          others.forEach(function (id) {
+            var o = ORDERS.filter(function (x) { return x.id === id; })[0];
+            var main = ORDERS.filter(function (x) { return x.id === first; })[0];
+            if (!o || !main) return;
+            main.reports = main.reports.concat(o.reports);
+            main.severity = Math.max(main.severity, o.severity);
+            o.mergedInto = first;
+            o.status = 'resolved';
+          });
+
+          renderOrders();
+          renderMetrics();
+          renderDispatch();
+          renderMergeAdvice();
+          toast('已合并 ' + others.length + ' 条工单，上报记录已归并', 'ok');
+        });
+      });
+    }
+
+    paint(null, 'loading');
+
+    var seq = ++mergeSeq;
+    var target = window.Insight;
+    if (!target) { paint(null, 'fail'); return; }
+
+    target.merge(groups).then(function (r) {
+      if (seq !== mergeSeq) return;
+      paint(r.items, 'ok');
+    }).catch(function () {
+      if (seq !== mergeSeq) return;
+      paint(null, 'fail');
     });
 
     if (animate) toast('已重新分析合并建议');
@@ -1412,10 +1564,18 @@
           (rep >= 2 ? '，建议这次一并根治' : '') + '</span></div>'
         : '') +
 
+      /* 复核单的动作放在最上面：值班的人打开抽屉就是为了点这两个按钮，
+         不该让他先滚过一整屏诊断再去找。 */
+      reviewSection(o) +
+
       '<div class="dr-section">' +
         '<div class="dr-section-title">AI 诊断 · 仅供参考</div>' +
-        '<div class="dr-note">' + escapeHtml(o.summary) + '<br><br>' +
-          '<b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) + '</div>' +
+        (o.summary || o.advice
+          ? '<div class="dr-note">' + escapeHtml(o.summary || '') +
+            (o.advice ? '<br><br><b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) : '') +
+            '</div>'
+          : '<div class="dr-note">这条没有 AI 诊断 —— 本地代理没启动，或者模型没有返回摘要。' +
+            '不要拿模板话充数，直接看下面的现场记录判断。</div>') +
       '</div>' +
 
       (o.live ? liveSection(o) : '') +
@@ -1476,6 +1636,12 @@
     }
 
     bindProgress(o);
+
+    $$('#drawerBody [data-rv]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        resolveReview(o, b.dataset.rv === 'ok');
+      });
+    });
   }
 
   function closeDrawer() {
@@ -1582,8 +1748,8 @@
       address: t.addr,
       baseSeverity: t.severity,
       severity: t.severity,
-      summary: t.desc || (meta.label + ' · 现场上报'),
-      advice: (a && a.advice) || 'AI 已放行，按类型自动派单',
+      summary: (a && a.summary) || '',
+      advice: (a && a.advice) || '',
       lng: t.lng,
       lat: t.lat,
       dept: D.deptFor(t.type),
@@ -1999,6 +2165,99 @@
     '</div>';
   }
 
+  /**
+   * 抽屉里的「复核结论」。
+   *
+   * 这一块只在 status=review 时出现，回答三个问题：
+   *   为什么这张单需要人看？用户到底写了什么？AI 和用户哪里对不上？
+   * 答完再给两个按钮 —— 通过就派单，不通过就驳回。
+   * 复核不是"再看看"，是一次有结论的分流。
+   */
+  function reviewSection(o) {
+    if (o.status !== 'review') return '';
+
+    var a = o.analysis || {};
+    var why = [];
+    if (a.manual) why.push('用户主动转人工');
+    if (a.conflict) why.push('图文内容对不上');
+    if (a.review) why.push('画质存疑');
+    if (!why.length) why.push('需要人工确认现场');
+
+    var typeFrom = a.typeFrom ? D.type(a.typeFrom).label : '';
+    var typeTo = D.type(o.type).label;
+
+    return '<div class="dr-section dr-review">' +
+      '<div class="dr-section-title">待人工复核 · ' + escapeHtml(why.join(' / ')) + '</div>' +
+
+      '<div class="dr-rv-row"><span class="dr-rv-k">用户描述</span>' +
+        '<span class="dr-rv-v">' + (o.desc ? escapeHtml(o.desc) : '（没有填写）') + '</span></div>' +
+
+      (a.seen
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">AI 看到</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.seen) + '</span></div>'
+        : '') +
+
+      (a.typeAdjusted && typeFrom
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">类型修正</span>' +
+          '<span class="dr-rv-v">用户点的是「' + escapeHtml(typeFrom) + '」，已按内容改为「' +
+          escapeHtml(typeTo) + '」</span></div>'
+        : '') +
+
+      (a.conflict
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">图文矛盾</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.conflictNote || '照片与描述不是同一件事') +
+          (a.conflictAction === 'kept'
+            ? '<br><b style="color:var(--warn)">用户选择保留自己的描述</b>，重点核对是不是拍错了地方'
+            : '<br>用户已采纳 AI 按照片整理的版本') +
+          '</span></div>'
+        : '') +
+
+      '<div class="dr-rv-acts">' +
+        '<button class="dr-rv-btn is-ok" data-rv="ok">确认有效，转派单</button>' +
+        '<button class="dr-rv-btn is-no" data-rv="no">驳回这张单</button>' +
+      '</div>' +
+      '<div class="dr-note" style="margin-top:9px;background:transparent;border:0;padding:0">' +
+        '驳回会给上报人记一次无效提交（扣 5 信用分），所以先看照片再点。' +
+      '</div>' +
+    '</div>';
+  }
+
+  /** 复核结论落地：改状态 + 写时间线 + 写回编码表 */
+  function resolveReview(o, ok) {
+    if (ok) {
+      o.status = 'processing';
+      appendProgress(o, '人工复核通过，已派单',
+        '确认现场与类型一致，转给 ' + o.dept.name,
+        { by: '值班主管', role: 'admin', state: 'processing', tone: 'ok' });
+      patchCodeStatus(o.code, 'processing');
+      toast('复核通过，已转给 ' + o.dept.short, 'ok');
+    } else {
+      o.status = 'rejected';
+      appendProgress(o, '人工复核驳回',
+        '照片与描述对不上，或现场没有可处置的设施问题',
+        { by: '值班主管', role: 'admin', state: 'rejected', tone: 'warn' });
+      patchCodeStatus(o.code, 'rejected');
+      toast('已驳回，上报人会看到驳回原因', 'warn');
+    }
+
+    renderOrders();
+    renderMetrics();
+    openDrawer(o);
+  }
+
+  /** 改编码表里的状态（后台没引 Auth，直接操作同一个 key） */
+  function patchCodeStatus(code, status) {
+    if (!code) return;
+    try {
+      var raw = localStorage.getItem('jw.codes.v2');
+      var codes = raw ? JSON.parse(raw) : {};
+      if (codes[code]) {
+        codes[code].status = status;
+        localStorage.setItem('jw.codes.v2', JSON.stringify(codes));
+      }
+    } catch (e) { /* 演示环境，存不进去不影响 */ }
+  }
+
   /** 抽屉里的「现场这一条」：照片 + 判定过程 */
   function liveSection(o) {
     var a = o.analysis || {};
@@ -2036,10 +2295,35 @@
 
     return '<div class="dr-section">' +
       '<div class="dr-section-title">现场原始记录</div>' +
-      (o.photo ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>' : '') +
-      (o.summary ? '<div class="dr-note" style="margin-top:10px">“' + escapeHtml(o.summary) + '”</div>' : '') +
+      (o.photo
+        ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>'
+        : (D.photoRequired && !D.photoRequired(o.type)
+            ? '<div class="dr-note" style="margin-top:0">这一类允许不传照片（例如校园网故障），' +
+              '所以只有文字信息。判断时以描述为准，必要时电话联系上报人。</div>'
+            : '<div class="dr-note" style="margin-top:0;background:rgba(201,123,32,.08);border-color:rgba(201,123,32,.24)">' +
+              '<b>这张单没有上传照片</b>，而这一类本应附一张现场图。' +
+              '先看描述和上报人信用，必要时电话确认，别直接派人空跑。</div>')) +
+      (o.desc
+        ? '<div class="dr-rv-row" style="margin-top:10px"><span class="dr-rv-k">用户描述</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(o.desc) + '</span></div>'
+        : '') +
+      (o.summary
+        ? '<div class="dr-note" style="margin-top:8px">AI 摘要：' + escapeHtml(o.summary) + '</div>'
+        : '') +
+      (a.typeAdjusted && a.typeFrom
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">类型修正</span>' +
+          '<span class="dr-rv-v">用户点的是「' + escapeHtml(D.type(a.typeFrom).label) +
+          '」，AI 按内容改成「' + escapeHtml(D.type(a.typeTo || o.type).label) + '」</span></div>'
+        : '') +
+      (a.conflict
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">图文矛盾</span>' +
+          '<span class="dr-rv-v">' + escapeHtml(a.conflictNote || '照片与描述不符') +
+          (a.conflictAction === 'kept' ? '（用户保留原描述）' : '（用户已采纳 AI 的版本）') +
+          '</span></div>'
+        : '') +
       '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
-        '<span class="dr-v">' + src + '</span></div>' +
+        '<span class="dr-v">' + src +
+        (a.review ? ' · 已标记人工复核' : '') + '</span></div>' +
       reviewTag +
       (a.seen
         ? '<div class="dr-seen"><span class="dr-seen-k">模型看到的</span>' +
@@ -2048,8 +2332,9 @@
       (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
       '<div class="dr-note" style="margin-top:8px">' +
         (a.pass
-          ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，' +
-            '核实完点「办结并发分」。'
+          ? (a.source === 'deepseek'
+              ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，核实完点「办结并发分」。'
+              : '这条是本地规则引擎放行的（代理没启动），模型没有参与判断 —— 派单前建议先看一眼现场。')
           : '上报人选择的是「转人工」，所以这张单子没经过自动派单，' +
             '等人工确认后再分给班组。') +
       '</div>' +
@@ -2077,6 +2362,15 @@
     $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
     $('#btnLiveClear').addEventListener('click', clearOrders);
     $('#btnLiveUndo').addEventListener('click', undoClear);
+
+    // 复核提示条上的「只看待复核」：等于点一下筛选里的那一项
+    var btnRv = $('#btnReviewOnly');
+    if (btnRv) {
+      btnRv.addEventListener('click', function () {
+        var b = $('#statusFilter [data-status="review"]');
+        if (b) b.click();
+      });
+    }
 
     // 热力图筛选
     $$('#heatFilter .seg-btn').forEach(function (b) {

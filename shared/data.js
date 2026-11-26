@@ -307,8 +307,8 @@
       lng: 113.5341, lat: 34.8197
     },
     {
-      key: 'mismatch', tone: 'bad', n: '04', label: '类型错配',
-      sub: '语义闸门 · 描述不符',
+      key: 'mismatch', tone: 'ok', n: '04', label: '图文矛盾',
+      sub: '矛盾确认 · 以图为准',
       photo: 'pothole', type: 'lighting',
       desc: '这里水管漏水，地上都是积水',
       addr: '教学区主路',

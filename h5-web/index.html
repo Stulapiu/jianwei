@@ -99,19 +99,20 @@
         <div class="form-sec reveal">
           <div class="form-head">
             <span class="form-label">现场照片</span>
-            <span class="form-note">最多 3 张</span>
+            <span class="form-note" id="photoReq">最多 3 张</span>
           </div>
           <div class="photo-grid" id="photoGrid"></div>
-          <div class="hint" style="margin-top:8px">拍清楚设施本身，AI 更容易判断</div>
+          <div class="hint" id="photoHint" style="margin-top:8px">拍清楚设施本身，AI 更容易判断</div>
         </div>
 
         <!-- 类型 -->
         <div class="form-sec reveal" style="--d:1">
           <div class="form-head">
             <span class="form-label">问题类型</span>
-            <span class="form-note">必选</span>
+            <span class="form-note">必选 · 选错也没关系</span>
           </div>
           <div class="type-row" id="typeRow"></div>
+          <div class="type-suggest" id="typeSuggest" hidden></div>
         </div>
 
         <!-- 位置 -->
@@ -150,7 +151,8 @@
           </div>
           <textarea class="textarea" id="descInput" maxlength="100"
             placeholder="说说具体情况，例如「这盏灯闪了三天」「垃圾已经堆到路上了」"></textarea>
-          <div class="hint" style="margin-top:8px">不用写得很正式，AI 会帮你整理成工单</div>
+          <div class="desc-suggest" id="descSuggest" hidden></div>
+          <div class="hint" style="margin-top:8px" id="descHint">不用写得很正式，AI 会帮你整理成工单</div>
         </div>
 
         <!-- 积分：什么才算数，讲在提交之前 -->
@@ -168,6 +170,7 @@
         </div>
 
         <div class="submit-dock">
+          <div class="submit-tip" id="submitTip" hidden></div>
           <button class="btn btn--primary btn--block" id="btnSubmit" aria-disabled="true">提交上报</button>
           <div class="dock-hint">所有 AI 判断仅供参考，最终以人工复核为准</div>
         </div>
@@ -470,6 +473,7 @@
 <script src="../shared/auth.js"></script>
 <script src="../shared/rewards.js"></script>
 <script src="../shared/agent.js"></script>
+<script src="../shared/guard.js"></script>
 <script src="assets/js/ui.js"></script>
 <script src="../shared/data.js"></script>
 <script src="assets/js/app.js"></script>

@@ -352,6 +352,13 @@ window.Auth = (function () {
     if (a.soft && a.qualityHint && a.qualityHint.message) {
       noteParts.push('画质存疑：' + a.qualityHint.message);
     }
+    // 图文矛盾是用户自己点过头的，写进进度里，事后能对上账
+    if (a.conflict) {
+      noteParts.push(a.conflictAction === 'applied'
+        ? '已按你确认的版本调整类型与描述'
+        : '你选择保留原描述，已转人工重点核对');
+    }
+    if (a.noPhoto) noteParts.push('未附照片（这一类允许）');
 
     list.push({
       at: at + 1,

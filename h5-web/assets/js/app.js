@@ -34,6 +34,8 @@
     lat: null,            // 上报点纬度
     located: false,
     invalidStreak: 0,     // 连续被拦次数，满 3 转人工
+    preview: null,        // 图片即时预判结果（AI 认出来的类型 + 一句话描述）
+    previewing: false,    // 预判请求在飞
     session: null,        // 当前身份（学号 / 手机号 / 游客）
     reports: JSON.parse(JSON.stringify(D.MY_REPORTS)),
     user: JSON.parse(JSON.stringify(D.USER))
@@ -443,10 +445,11 @@
     }).join('');
 
     if (state.photos.length < 3) {
+      const addLabel = photoRequired() ? '拍照 / 相册' : '添加图片 · 选填';
       html += '<div class="photo-cell">' +
                 '<button class="photo-add" id="btnAddPhoto">' +
                   '<span class="plus">' + UI.icon('plus', 15) + '</span>' +
-                  '<span>拍照 / 相册</span>' +
+                  '<span>' + addLabel + '</span>' +
                 '</button>' +
               '</div>';
     }
@@ -457,7 +460,9 @@
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         state.photos.splice(+b.dataset.del, 1);
+        if (!state.photos.length) state.preview = null;
         renderPhotos();
+        renderSuggest();
         refreshSubmit();
       });
     });
@@ -515,8 +520,10 @@
         $$('[data-pick]', api.el).forEach(function (b) {
           b.addEventListener('click', function () {
             state.photos.push({ kind: b.dataset.pick });
+            state.preview = null;
             api.close();
             renderPhotos();
+            renderSuggest();
             refreshSubmit();
           });
         });
@@ -553,6 +560,8 @@
         renderPhotos();
         refreshSubmit();
         UI.toast('照片已添加', 'ok');
+        // 图一进来就送去认一遍：顶出候选类型、给一句现成描述
+        runPreview();
       }).catch(function () {
         UI.toast('这张图读不出来，换一张试试', 'warn');
       });
@@ -583,6 +592,159 @@
       img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode')); };
       img.src = url;
     });
+  }
+
+  /**
+   * 图片即时预判。
+   *
+   * 用户按下快门之后、还在想怎么描述的那几秒里，把两件事做完：
+   *   1. 认出来这是哪一类问题，把候选类型顶在类型区下面，点一下就能换；
+   *   2. 写一句现成的描述（"某处井盖缺失，边缘外露"），点一下就填进输入框。
+   *
+   * 拿不到结果就什么都不显示 —— 这里不猜、不兜底文案。
+   * 猜错类型比不猜更糟：用户会以为系统认定了，反而不敢改。
+   */
+  function runPreview() {
+    const ph = state.photos[0];
+    if (!ph || !ph.real) { renderSuggest(); return; }
+
+    const seq = ++previewSeq;
+    state.previewing = true;
+    renderSuggest({ loading: true });
+
+    const ag = getAgent();
+    ag.probe().then(function (st) {
+      if (seq !== previewSeq) return null;
+      if (st.mode !== 'deepseek') {
+        state.previewing = false;
+        state.preview = null;
+        renderSuggest({ offline: true });
+        return null;
+      }
+      return ag.preview({
+        image: ph.src,
+        type: state.type,
+        desc: state.desc,
+        address: state.addr
+      });
+    }).then(function (res) {
+      if (seq !== previewSeq || !res) return;
+      state.previewing = false;
+      if (!res.ok) {
+        state.preview = null;
+        renderSuggest({ offline: true });
+        return;
+      }
+      state.preview = res;
+      renderSuggest();
+    }).catch(function () {
+      if (seq !== previewSeq) return;
+      state.previewing = false;
+      renderSuggest();
+    });
+  }
+
+  let previewSeq = 0;
+
+  /** 把预判结果画出来（类型候选 + 描述建议） */
+  function renderSuggest(opt) {
+    opt = opt || {};
+    const boxT = $('#typeSuggest');
+    const boxD = $('#descSuggest');
+    if (!boxT || !boxD) return;
+
+    if (opt.loading) {
+      boxT.hidden = false;
+      boxT.innerHTML =
+        '<div class="ts-head"><span class="ts-ic">' + UI.icon('spark', 13) + '</span>正在认这张图…</div>' +
+        '<div class="ts-note">认出来会把类型顶上来，描述也能一键填入</div>';
+      boxD.hidden = true;
+      return;
+    }
+
+    if (opt.offline) {
+      boxT.hidden = false;
+      boxT.innerHTML =
+        '<div class="ts-head"><span class="ts-ic">' + UI.icon('spark', 13) + '</span>即时识别没连上</div>' +
+        '<div class="ts-note">本地代理没启动时无法识图，不影响提交；提交后仍会按文字判断</div>';
+      boxD.hidden = true;
+      return;
+    }
+
+    const p = state.preview;
+    if (!p) {
+      boxT.hidden = true;
+      boxT.innerHTML = '';
+      boxD.hidden = true;
+      boxD.innerHTML = '';
+      return;
+    }
+
+    if (p.isFacility === false) {
+      boxT.hidden = false;
+      boxT.innerHTML =
+        '<div class="ts-head"><span class="ts-ic">' + UI.icon('alert', 13) + '</span>这张里没看出设施问题</div>' +
+        '<div class="ts-note">如果确实要报，建议把镜头对准设施本身再拍一张</div>';
+      boxD.hidden = true;
+      return;
+    }
+
+    const t = D.TYPES.filter(function (x) { return x.key === p.type; })[0];
+    const label = t ? t.label : p.type;
+    const on = state.type === p.type;
+
+    boxT.hidden = false;
+    boxT.innerHTML =
+      '<div class="ts-head"><span class="ts-ic">' + UI.icon('spark', 13) + '</span>' +
+        'AI 看这张图，像是这一类' +
+      '</div>' +
+      '<div class="ts-chips">' +
+        '<button class="ts-chip" data-sug-type="' + p.type + '"' + (on ? ' style="border-color:var(--brand);background:var(--brand-light)"' : '') + '>' +
+          '<b>' + label + '</b>' + (on ? ' · 已选中' : '') +
+        '</button>' +
+      '</div>' +
+      '<div class="ts-note">认错了直接改上面的类型就行，不用管它</div>';
+
+    const btn = boxT.querySelector('[data-sug-type]');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        state.type = btn.dataset.sugType;
+        renderTypes();
+        renderPtLadder();
+        refreshSubmit();
+        renderSuggest();
+        UI.toast('已换成「' + label + '」', 'ok');
+      });
+    }
+
+    if (p.desc) {
+      boxD.hidden = false;
+      boxD.innerHTML =
+        '<span class="ds-ic">' + UI.icon('spark', 14) + '</span>' +
+        '<div class="ds-main">' +
+          '<div class="ds-k">你可能想上报</div>' +
+          '<div class="ds-t">' + UI.escapeHtml(p.desc) + '</div>' +
+        '</div>' +
+        '<span class="ds-use">填入</span>';
+      boxD.onclick = function () {
+        applySuggestedDesc(p.desc);
+      };
+    } else {
+      boxD.hidden = true;
+    }
+  }
+
+  /** 点建议 → 填进描述框。已经写过内容的，用分号接上，不覆盖人家的话 */
+  function applySuggestedDesc(text) {
+    const cur = (state.desc || '').trim();
+    const next = cur
+      ? (cur.indexOf(text) >= 0 ? cur : cur + '；' + text)
+      : text;
+    state.desc = next.slice(0, 100);
+    $('#descInput').value = state.desc;
+    $('#descCount').textContent = state.desc.length;
+    refreshSubmit();
+    UI.toast('已填入描述，可以再改', 'ok');
   }
 
   function renderTypes() {
@@ -790,20 +952,78 @@
     }, 260);
   }
 
+  /* ---------------- 可提交判断 ---------------- */
+
+  /**
+   * 这一类要不要照片。
+   * 规则收在 domain.js：路面、井盖、垃圾这些没有图就没法派人，
+   * 断网、校园网卡这些拍不出所以然，改成选填。
+   */
+  function photoRequired() {
+    return window.Domain && Domain.photoRequired ? Domain.photoRequired(state.type) : true;
+  }
+
+  function descTooShort() {
+    return (state.desc || '').trim().length < 4;
+  }
+
   function canSubmit() {
-    return state.photos.length > 0 && !!state.type && state.located;
+    if (!state.type || !state.located) return false;
+    if (photoRequired() && !state.photos.length) return false;
+    // 不拍照可以，但得说清楚是什么事 —— 否则后台只收到一句"网卡了"
+    if (!state.photos.length && descTooShort()) return false;
+    return true;
   }
 
   function refreshSubmit() {
     const btn = $('#btnSubmit');
+    if (!btn) return;
     const ok = canSubmit();
     btn.setAttribute('aria-disabled', ok ? 'false' : 'true');
+
+    // 照片区的说明跟着类型变：必传的讲怎么拍，选填的讲为什么要传
+    const req = $('#photoReq');
+    const hint = $('#photoHint');
+    if (req) {
+      req.textContent = photoRequired() ? '最多 3 张 · 这一类需要照片' : '最多 3 张 · 选填';
+    }
+    if (hint) {
+      hint.textContent = photoRequired()
+        ? '拍清楚设施本身，AI 更容易判断'
+        : '这一类不拍也能报。有图的话，后勤不用先跑一趟确认位置';
+    }
+
+    const tip = $('#submitTip');
+    if (!tip) return;
+    let msg = '';
+    if (!state.type) msg = '还差一步：选一个问题类型';
+    else if (!state.located) msg = '还在定位，也可以手动填个位置';
+    else if (photoRequired() && !state.photos.length) msg = '这一类需要一张现场照片，方便后勤直接派对应班组';
+    else if (!state.photos.length && descTooShort()) msg = '不拍照的话，写一句是什么问题（至少 4 个字）';
+
+    if (msg) {
+      tip.hidden = false;
+      tip.textContent = msg;
+      tip.classList.toggle('is-block', photoRequired() && !state.photos.length);
+    } else {
+      const g = window.Guard ? Guard.remain() : null;
+      if (g && g.coolLeft > 0) {
+        tip.hidden = false;
+        tip.textContent = '连续几次没识别通过，先歇 ' + Math.ceil(g.coolLeft / 60) + ' 分钟再报';
+        tip.classList.add('is-block');
+      } else {
+        tip.hidden = true;
+        tip.textContent = '';
+        tip.classList.remove('is-block');
+      }
+    }
   }
 
   function resetForm(keepAddr) {
     state.photos = [];
     state.type = '';
     state.desc = '';
+    state.preview = null;
     if (!keepAddr) state.addr = '';
     $('#descInput').value = '';
     $('#descCount').textContent = '0';
@@ -811,6 +1031,7 @@
     renderPhotos();
     renderTypes();
     renderPtLadder();
+    renderSuggest();
     refreshSubmit();
   }
 
@@ -818,6 +1039,8 @@
     $('#descInput').addEventListener('input', function (e) {
       state.desc = e.target.value.slice(0, 100);
       $('#descCount').textContent = state.desc.length;
+      // 不拍照的类型靠描述判断能不能提交，所以每次输入都要重算
+      refreshSubmit();
     });
 
     $('#addrInput').addEventListener('input', function (e) {
@@ -1032,12 +1255,107 @@
     return agent;
   }
 
+  /**
+   * 图文矛盾的二次确认。
+   *
+   * 只在一种情况下弹：照片和描述说的是两件事（描述"灯不亮"，照片是井盖缺失）。
+   * 类型点错不弹 —— 那种事 AI 自己改完就行，用户没必要参与。
+   *
+   * 弹出的内容必须是"改好之后的成品"，不是让用户自己重写：
+   * 类型、描述、以及为什么这么改，都给全，用户只需要点一下。
+   *
+   * @returns {Promise<'apply'|'keep'|'cancel'>}
+   */
+  function askConflict(v, origType) {
+    return new Promise(function (resolve) {
+      let settled = false;
+      function done(act) {
+        if (settled) return;
+        settled = true;
+        resolve(act);
+      }
+
+      const fromType = D.TYPE_LABEL[origType || state.type] || '未选择';
+      const toType = D.TYPE_LABEL[v.type] || fromType;
+      const origDesc = (state.desc || '').trim();
+
+      const body =
+        '<div class="cf-lead">照片和你写的内容对不上，以照片为准整理了一版，确认一下再提交。</div>' +
+
+        '<div class="cf-compare">' +
+          '<div class="cf-col">' +
+            '<div class="cf-k">你填的</div>' +
+            '<div class="cf-type">' + UI.escapeHtml(fromType) + '</div>' +
+            '<div class="cf-desc">' + UI.escapeHtml(origDesc || '（没有描述）') + '</div>' +
+          '</div>' +
+          '<div class="cf-col is-ai">' +
+            '<div class="cf-k">照片里是</div>' +
+            '<div class="cf-type">' + UI.escapeHtml(toType) + '</div>' +
+            '<div class="cf-desc">' + UI.escapeHtml(v.suggestDesc || '') + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        (v.conflictNote
+          ? '<div class="cf-why">' + UI.icon('spark', 12) + '<span>' + UI.escapeHtml(v.conflictNote) + '</span></div>'
+          : '') +
+
+        '<button class="btn btn--primary btn--block" id="cfApply" style="margin-top:14px">按这版提交</button>' +
+        '<button class="btn btn--ghost btn--block" id="cfKeep" style="margin-top:8px">保留我写的</button>' +
+        '<button class="btn btn--text btn--block" id="cfCancel" style="margin-top:4px">先不报，我改一下</button>';
+
+      UI.sheet({
+        title: '核对一下再提交',
+        sub: '照片和描述不一致，以照片为准',
+        body: body,
+        onClose: function () { done('cancel'); },
+        onMount: function (api) {
+          $('#cfApply', api.el).addEventListener('click', function () {
+            done('apply');
+            api.close();
+          });
+          $('#cfKeep', api.el).addEventListener('click', function () {
+            done('keep');
+            api.close();
+          });
+          $('#cfCancel', api.el).addEventListener('click', function () {
+            done('cancel');
+            api.close();
+          });
+        }
+      });
+    });
+  }
+
   async function submit() {
     if (!canSubmit()) {
-      if (!state.photos.length) UI.toast('先拍一张现场照片吧');
-      else if (!state.type) UI.toast('选一下问题类型');
-      else UI.toast('还没有获取到位置');
+      if (!state.type) UI.toast('选一下问题类型');
+      else if (!state.located) UI.toast('还没有获取到位置');
+      else if (photoRequired() && !state.photos.length) UI.toast('这一类需要一张现场照片');
+      else UI.toast('写一句是什么问题（至少 4 个字）');
       return;
+    }
+
+    /* 照片指纹：判"同一张图反复用"。
+       只给真拍/真传的图算指纹 —— 示意图是所有人共用的素材，算出来必然一样，
+       拿它去拦人等于把演示路径堵死。算不出指纹（画布被污染、图太大）就跳过，
+       宁可少拦一次，也不能让人因为技术原因报不上。 */
+    let photoHash = null;
+    if (window.Guard && Guard.hashImage) {
+      const p0 = state.photos[0];
+      if (p0 && p0.real && p0.src) photoHash = await Guard.hashImage(p0.src);
+    }
+
+    /* 防刷：间隔、同图、重复、配额、冷静期，都在 Guard 里。
+       这里不是防坏人 —— 改代码的人拦不住；是拦"手滑连点"和"情绪化刷屏"。 */
+    if (window.Guard) {
+      const g = Guard.check({
+        type: state.type, lng: state.lng, lat: state.lat, photoHash: photoHash
+      });
+      if (!g.ok) {
+        UI.toast(g.message, 'warn');
+        refreshSubmit();
+        return;
+      }
     }
 
     const ag = getAgent();
@@ -1047,7 +1365,9 @@
     openAiMask();
 
     const v = await ag.judge({
-      image: state.photos[0].src || D.photoDataURI(state.photos[0].kind),
+      image: state.photos.length
+        ? (state.photos[0].src || D.photoDataURI(state.photos[0].kind))
+        : '',
       type: state.type,
       desc: state.desc,
       address: state.addr,
@@ -1071,9 +1391,45 @@
     await sleep(140);
 
     if (!v.pass) {
+      if (window.Guard) Guard.noteReject();
       state.invalidStreak++;
       showReject(v);
       return;
+    }
+    if (window.Guard) Guard.notePass();
+
+    /* 类型点错：直接换成 AI 认出来的那一类，不打断、不提示。
+       用户点错按钮是常事，为此驳回一次等于让人重填一遍全表 ——
+       该改的是分类，不是人的态度。 */
+    let typeFrom = null;
+    if (v.type && v.type !== state.type) {
+      typeFrom = state.type;
+      state.type = v.type;
+      renderTypes();
+      renderPtLadder();
+    }
+
+    /* 描述与画面矛盾：这才是真需要用户点头的情况。
+       以图片为准给出改好的版本，让用户确认一次再提交。 */
+    let conflictAction = '';
+    if (v.conflict) {
+      const act = await askConflict(v, typeFrom || state.type);
+      if (act === 'cancel') {
+        refreshSubmit();
+        return;
+      }
+      if (act === 'apply') {
+        state.type = v.type || state.type;
+        state.desc = (v.suggestDesc || '').slice(0, 100);
+        $('#descInput').value = state.desc;
+        $('#descCount').textContent = state.desc.length;
+        renderTypes();
+        renderPtLadder();
+        conflictAction = 'applied';
+      } else {
+        conflictAction = 'kept';
+      }
+      refreshSubmit();
     }
 
     const merge = checkMerge();
@@ -1111,7 +1467,7 @@
       ownerId: s ? s.id : A.deviceId(),
       ownerKind: s ? s.kind : 'guest',
       // 实拍图带一张缩略图过去，后台现场模式能直接看到现场长什么样
-      photo: photo0.src || null,
+      photo: photo0 ? (photo0.src || null) : null,
       desc: state.desc || '',
       // 判定过程也一起存下来：后台要看的是"AI 为什么放行"，不是只看到一个绿点
       analysis: {
@@ -1129,7 +1485,17 @@
         sawImage: !!v.sawImage,
         metrics: v.metrics || null,
         severity: finalSeverity,
-        latency: v.latency || 0
+        latency: v.latency || 0,
+        // 类型被改过：后台能看到"用户点的"和"AI 判的"分别是哪个
+        typeAdjusted: !!(v.typeAdjusted || typeFrom),
+        typeFrom: typeFrom || v.typeFrom || null,
+        typeTo: state.type,
+        // 图文矛盾：applied = 用户采纳了 AI 的版本，kept = 用户坚持自己的
+        conflict: !!v.conflict,
+        conflictAction: conflictAction || (v.conflict ? 'kept' : ''),
+        conflictNote: v.conflictNote || '',
+        // 这张单没有照片（网络类问题允许不拍）
+        noPhoto: !state.photos.length
       }
     });
 
@@ -1142,11 +1508,19 @@
       ago: 0,
       merged: merge.merged ? Math.max(1, merge.reporters - 1) : 0,
       estPoints: estPoints,
-      photo: state.photos[0].kind,
+      photo: state.photos.length ? state.photos[0].kind : 'none',
       lng: state.lng,
       lat: state.lat
     };
     state.reports.unshift(rec);
+
+    // 记一笔：下一次提交要过间隔/同图/配额/重复几道检查
+    if (window.Guard) {
+      Guard.record({
+        type: state.type, lng: state.lng, lat: state.lat,
+        code: ticket.code, photoHash: photoHash
+      });
+    }
 
     // 结算走 Auth：这一步只动学分与权重。
     // 积分一个子儿都不发 —— 等后勤到场核实、真处理完了才结算，
@@ -1314,8 +1688,10 @@
             '<span class="tag" style="background:' + pri.color + '18;color:' + pri.color + '">' +
               pri.id + ' · ' + pri.label + '</span></span></div>' +
           '<div class="ai-block">' +
-            '<span class="tag tag--ai">' + UI.icon('spark', 11) + 'AI 建议 · 仅供参考</span>' +
-            '<div class="txt">' + UI.escapeHtml(v.summary) + '</div>' +
+            '<span class="tag tag--ai">' + UI.icon('spark', 11) +
+              (v.summary || v.advice ? 'AI 建议 · 仅供参考' : 'AI 未接入') + '</span>' +
+            '<div class="txt">' + UI.escapeHtml(v.summary ||
+              '本地代理没启动，这一条没有生成摘要和处置建议。工单照常派单，不影响处理。') + '</div>' +
             (v.advice ? '<div class="advice">处置建议：' + UI.escapeHtml(v.advice) + '</div>' : '') +
           '</div>' +
         '</div>' +
@@ -1373,6 +1749,9 @@
   }
 
   function showReject(v) {
+    // renderResult 是独立函数，拿不到这里的 v；转人工时要读紧急度，
+    // 先存一份，避免点"仍然提交"时报 undefined。
+    state.lastReject = v;
     const typeLabel = D.TYPE_LABEL[state.type];
     const reasonText = {
       blank: '画面里没有可辨识的内容',
@@ -1382,15 +1761,18 @@
       overexposed: '照片过曝',
       flat: '疑似截图或纯色图',
       'non-facility': '没识别到公共设施',
-      mismatch: '描述与所选类型不一致'
-    }[v.reason] || '照片信息不足';
+      'no-info': '没有照片，描述也太短',
+      mismatch: '描述与类型不一致'
+    }[v.reason] || '信息不足';
 
     // 空白图是"没拍到"，和被挡下来的糊图不是一回事，提示得说人话
     const hintText = v.reason === 'blank' || v.reason === 'blackout'
       ? '这张照片里看不出任何东西，通常是手指挡住了镜头、对着桌面或墙面拍的。' +
         '把镜头对准要报的设施再拍一张就行。'
-      : '这次不算你的错，只是 AI 想让工单更准确一点。' +
-        '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。';
+      : v.reason === 'no-info'
+        ? '这一类可以不拍照，但至少写一句是什么问题，比如「3 号楼 502 校园网一直断」。'
+        : '这次不算你的错，只是 AI 想让工单更准确一点。' +
+          '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。';
 
     const html =
       '<div class="result-wrap">' +
@@ -1466,16 +1848,18 @@
 
     const force = $('#btnForce');
     if (force) {
-      force.addEventListener('click', function () {
+      force.addEventListener('click', async function () {
         force.disabled = true;
         force.textContent = '已提交，等待复核';
 
         // 转人工也要给编码——否则游客这条就彻底查不到了
+        const rv = state.lastReject || {};
         const ss = A.get();
-        const sev = v.severity || 2;
+        const sev = rv.severity || 2;
         const estPts = window.Payout
           ? Payout.estimate({ severity: sev, type: state.type, kind: 'review' })
           : 0;
+        const ph0 = state.photos[0];
         const tk = A.registerTicket({
           type: state.type,
           addr: state.addr || '已记录坐标',
@@ -1486,9 +1870,35 @@
           kind: 'review',
           estPoints: estPts,
           ownerId: ss ? ss.id : A.deviceId(),
-          ownerKind: ss ? ss.kind : 'guest'
+          ownerKind: ss ? ss.kind : 'guest',
+          // 复核的人要看到原图和用户写的原话，否则点了"转人工"也等于没给人看
+          photo: ph0 ? (ph0.src || null) : null,
+          desc: state.desc || '',
+          analysis: {
+            pass: false,
+            source: rv.source || 'rules',
+            reason: rv.reason || null,
+            message: rv.message || '',
+            detail: rv.detail || '',
+            seen: rv.seen || '',
+            sawImage: !!rv.sawImage,
+            metrics: rv.metrics || null,
+            review: true,
+            manual: true,
+            noPhoto: !state.photos.length
+          }
         });
         A.advanceTicket(tk.code, 'review', 'AI 未通过，用户选择转人工复核');
+
+        if (window.Guard) {
+          // 转人工也要落指纹，否则"AI 拦下 → 转人工"就成了绕开同图判重的口子
+          let fh = null;
+          if (Guard.hashImage && ph0 && ph0.real && ph0.src) fh = await Guard.hashImage(ph0.src);
+          Guard.record({
+            type: state.type, lng: state.lng, lat: state.lat,
+            code: tk.code, photoHash: fh
+          });
+        }
 
         state.reports.unshift({
           id: 'q' + Date.now(),
@@ -2471,6 +2881,8 @@
     renderPhotos();
     renderTypes();
     renderPtLadder();
+    renderSuggest();
+    refreshSubmit();
     bindReport();
     bindAuth();
     bindQuery();
