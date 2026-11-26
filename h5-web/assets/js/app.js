@@ -99,6 +99,14 @@
     if (name === 'badges') renderBadges();
     if (name === 'rewards') renderRewards();
 
+    /* 上报页不要留上一次的东西。
+       交完一条再点「上报」，还挂着上一条的照片和描述，最轻的后果是重复提交，
+       最重的后果是把另一件事写成同一条。地址和定位留着 —— 人通常还在原地。 */
+    if (name === 'report' && state.formStale) {
+      state.formStale = false;
+      resetForm(true);
+    }
+
     if (state.screen === name) return;
 
     const from = screenEl(state.screen);
@@ -1460,6 +1468,10 @@
       lat: state.lat,
       dept: Domain.deptFor(state.type).name,
       severity: finalSeverity,
+      /* 状态必须在这里定下来。
+         以前漏了这一个字段，落盘的单子全是 pending —— 界面上写着"人工复核"，
+         后台的复核队列里却一条都没有，等于这条单没人管。 */
+      status: (A.needsHumanReview() || v.review) ? 'review' : 'pending',
       merged: !!merge.merged,
       reporters: merge.reporters || 1,
       kind: rewardKind,
@@ -1480,6 +1492,8 @@
         soft: !!v.qualityHint,
         qualityHint: v.qualityHint || null,
         review: !!v.review,
+        // 为什么要人工复核：no-vision = 有图但没跑模型，等于没人看过这张图
+        reviewWhy: v.reviewWhy || '',
         // 模型自述"看到了什么" —— 后台要能核对它是不是真看了图
         seen: v.seen || '',
         sawImage: !!v.sawImage,
@@ -1534,6 +1548,10 @@
     const newBadges = grantBadges(v, merge.merged, true);
 
     showPass(v, merge, newBadges, ticket.code, reward, estPoints);
+
+    // 这一条已经交出去了：下次进上报页先把表单清干净，
+    // 但不要现在就清 —— 结果页上的类型、位置还得靠它显示
+    state.formStale = true;
   }
 
   /**
@@ -1652,16 +1670,23 @@
         '<div class="result-title">已经收到</div>' +
         '<div class="result-sub">谢谢你替这条街多看一眼</div>' +
 
-        // 画质存疑但放行了：要说清楚"接下来会发生什么"，
-        // 否则用户看到待发放的积分一直不到，会以为被吞了
+        // 转复核这件事必须说清楚，否则用户看到"待发放"一直不到，会以为被吞了。
+        // 三种原因分开讲：没跑视觉模型 / 画质存疑 / 模型调用失败。
         (v.review
           ? '<div class="merge-note" style="background:var(--review-bg);border-color:rgba(107,124,138,.2);margin-bottom:14px">' +
-              '<div style="flex:1"><div style="font-size:12.5px;font-weight:600">这张单会先过一遍人工复核</div>' +
+              '<div style="flex:1"><div style="font-size:12.5px;font-weight:600">' +
+                (v.reviewWhy === 'no-vision'
+                  ? '这张照片没有被 AI 识别内容，会先过一次人工复核'
+                  : '这张单会先过一遍人工复核') + '</div>' +
               '<div class="hint" style="margin-top:2px">' +
-                (v.qualityHint && v.qualityHint.message
-                  ? '画质提示：' + UI.escapeHtml(v.qualityHint.message) + '。'
-                  : '') +
-                '管理员确认现场后照常派单，不扣信用分，处理完积分照发。</div></div>' +
+                (v.reviewWhy === 'no-vision'
+                  ? '本地 AI 服务没连上，只能算清晰度和亮度，看不出画面里是什么。' +
+                    '工单照常提交，管理员看一眼就能确认，不扣信用分。'
+                  : (v.qualityHint && v.qualityHint.message
+                      ? '画质提示：' + UI.escapeHtml(v.qualityHint.message) + '。'
+                      : '') +
+                    '管理员确认现场后照常派单，不扣信用分，处理完积分照发。') +
+              '</div></div>' +
             '</div>'
           : '') +
 
@@ -1691,7 +1716,9 @@
             '<span class="tag tag--ai">' + UI.icon('spark', 11) +
               (v.summary || v.advice ? 'AI 建议 · 仅供参考' : 'AI 未接入') + '</span>' +
             '<div class="txt">' + UI.escapeHtml(v.summary ||
-              '本地代理没启动，这一条没有生成摘要和处置建议。工单照常派单，不影响处理。') + '</div>' +
+              (state.photos.length
+                ? '本地代理没启动，这一条没有生成摘要和处置建议。照片也只算了清晰度和亮度，没有识别画面内容 —— 所以会自动转人工看一眼。'
+                : '本地代理没启动，这一条没有生成摘要和处置建议。这条本来就没传照片，只按你写的文字归类，工单照常派单。')) + '</div>' +
             (v.advice ? '<div class="advice">处置建议：' + UI.escapeHtml(v.advice) + '</div>' : '') +
           '</div>' +
         '</div>' +
@@ -1914,6 +1941,7 @@
 
         setTimeout(function () {
           UI.toast('已转人工复核 · 编码 ' + tk.code, 'ok');
+          state.formStale = true;
           go('reports');
         }, 500);
       });
@@ -2151,6 +2179,16 @@
         btn.textContent = '关闭';
         btn.addEventListener('click', function () { api.close(); });
         (api.el.querySelector('.sheet-bd') || api.el).appendChild(btn);
+
+        // 缩略图点开看全图：竖拍的照片在详情页里只能显示一段，
+        // 想确认"到底拍到什么"就得能放大
+        var mini = api.el.querySelector('.dr-shot-mini');
+        if (mini) {
+          mini.addEventListener('click', function () {
+            var im = mini.querySelector('img');
+            if (im && im.src) UI.imageView(im.src, '现场照片');
+          });
+        }
       }
     });
   }
@@ -2248,6 +2286,15 @@
       : '有效上报 +2 · 被复核判定无效 −5 · 低于 60 分进人工复核') + ' · 点开看流水';
 
     $('#logoutLabel').textContent = guest ? '登录 / 切换账号' : '切换账号 / 退出登录';
+
+    /* 分析过程入口的小标签：直接告诉人现在有没有接上模型，
+       免得每次都点进去才发现是本地规则 */
+    const dbgTag = $('#aiDebugTag');
+    if (dbgTag) {
+      const st = getAgent().status();
+      dbgTag.textContent = st.mode === 'deepseek' ? 'DeepSeek' : '本地规则';
+      dbgTag.className = 'tag' + (st.mode === 'deepseek' ? ' tag--ok' : '');
+    }
 
     const owned = D.BADGES.filter(function (b) { return u.badges.indexOf(b.code) >= 0; });
     $('#profileBadges').innerHTML = owned.length
@@ -2591,6 +2638,178 @@
       showGate(false);
       UI.toast(s && s.kind !== 'guest' ? '已退出登录' : '登录后可以累积信用分', 'ok');
     });
+
+    const aiDbg = $('#btnAiDebug');
+    if (aiDbg) aiDbg.addEventListener('click', openAiDebug);
+  }
+
+  /* ============================================================
+     设置 · AI 分析过程
+     ------------------------------------------------------------
+     这个面板只回答一个问题："这张图，到底有没有被 AI 看过？"
+     看过的，把模型说了什么、本地指标是多少摆出来；
+     没看过的，明说没看过 —— 而不是在结果页给一个看起来正常的绿勾。
+
+     数据来自 agent.debug()：最近一次判定 + 最近一次预判 + 最近 6 条历史。
+     ============================================================ */
+  function openAiDebug() {
+    const ag = getAgent();
+    const dbg = ag.debug ? ag.debug() : { last: null, preview: null, history: [] };
+    const last = dbg.last;
+    const pv = dbg.preview;
+
+    if (!last && !pv) {
+      UI.sheet({
+        title: 'AI 分析过程',
+        sub: '还没有可看的记录',
+        body: '<div class="dbg-empty">这里会显示最近一次判定的完整过程。' +
+          '先报一条，或者随便选一张图（预判不需要提交）。</div>' +
+          '<div class="dbg-sec"><div class="dbg-t">当前模式</div>' +
+          '<div class="dbg-line">' + modeLine(ag.status()) + '</div></div>'
+      });
+      return;
+    }
+
+    const METRIC_ROWS = [
+      ['清晰度', 'sharpScore', '> ' + SentinelAgent.THRESH.blur, '越高越清楚'],
+      ['平均亮度', 'brightness', '< ' + SentinelAgent.THRESH.dark + ' 算暗', '0–1'],
+      ['平坦区', 'flatRatio', '> ' + SentinelAgent.THRESH.flat + ' 且无边缘 = 疑似截图', '0–1'],
+      ['边缘密度', 'edgeDensity', '< ' + SentinelAgent.THRESH.noEdge + ' 视为没结构', '0–1']
+    ];
+
+    function metricTable(m) {
+      if (!m) return '<div class="dbg-line muted">没有跑到画质分析（没图，或者图读不出来）</div>';
+      return '<table class="dbg-tb">' + METRIC_ROWS.map(function (r) {
+        const v = m[r[1]];
+        const shown = typeof v === 'number'
+          ? (r[1] === 'sharpScore' ? Math.round(v) : v.toFixed(3))
+          : '—';
+        return '<tr><td class="k">' + r[0] + '</td><td class="v num">' + shown + '</td>' +
+          '<td class="t">' + r[2] + '</td></tr>';
+      }).join('') + '</table>';
+    }
+
+    function verdictChip(v) {
+      const cls = v.pass ? 'is-pass' : 'is-fail';
+      const text = v.pass ? (v.review ? '放行 · 转人工复核' : '放行') : '拦下';
+      return '<span class="dbg-chip ' + cls + '">' + text + '</span>';
+    }
+
+    const v = last ? last.verdict : null;
+    const gates = last ? (last.gates || []) : [];
+    const gVision = gates.filter(function (g) { return g.id === 'vision'; })[0];
+    const gSem = gates.filter(function (g) { return g.id === 'semantic'; })[0];
+
+    const html =
+      (last
+        ? '<div class="dbg-hero">' +
+            verdictChip(v) +
+            '<span class="dbg-mode">' + (last.mode === 'deepseek' ? 'DeepSeek 视觉' : '本地规则') + '</span>' +
+            '<span class="dbg-lat">' + (last.verdict.latency || 0) + ' ms</span>' +
+          '</div>' +
+
+          '<div class="dbg-sec">' +
+            '<div class="dbg-t">① 图片有没有进模型</div>' +
+            '<div class="dbg-line">' +
+              (last.hasPhoto
+                ? (last.raster
+                    ? '是一张真实照片（' + Math.round(last.imageLen / 1024) + ' KB）'
+                    : '是演示用的示意图（SVG），按设计不送模型')
+                : '这条没有照片') +
+            '</div>' +
+            '<div class="dbg-line ' + (last.verdict.sawImage ? 'is-ok' : 'is-warn') + '">' +
+              (last.verdict.sawImage
+                ? '✓ 已送进视觉模型，它看过了'
+                : '✗ 没有送进模型' + (last.hasPhoto && last.raster ? ' —— 本地代理没启动，模型没看到这张图' : '')) +
+            '</div>' +
+            (last.verdict.seen
+              ? '<div class="dbg-quote">模型说：' + UI.escapeHtml(last.verdict.seen) + '</div>'
+              : '') +
+          '</div>' +
+
+          '<div class="dbg-sec">' +
+            '<div class="dbg-t">② 闸门一 · 画质（纯算法，不花钱）</div>' +
+            metricTable(last.metrics) +
+            (gVision
+              ? '<div class="dbg-line">结论：' + (gVision.pass ? '通过' : '不合格 · ' + (gVision.reason || '')) +
+                (gVision.message ? ' · ' + UI.escapeHtml(gVision.message) : '') + '</div>'
+              : '') +
+          '</div>' +
+
+          '<div class="dbg-sec">' +
+            '<div class="dbg-t">③ 闸门二 · 内容与归类</div>' +
+            '<div class="dbg-line">判定来源：' +
+              (last.verdict.source === 'deepseek' ? 'DeepSeek 视觉' : '本地关键词规则（没看图）') + '</div>' +
+            '<div class="dbg-line">用户选的类型：' + typeName(last.typeIn) +
+              (last.verdict.typeAdjusted
+                ? '　→　改成：' + typeName(last.verdict.type) + '（点错不驳回，直接改）'
+                : '　　类型没动') + '</div>' +
+            (gSem && gSem.reason
+              ? '<div class="dbg-line is-warn">拦截原因：' + UI.escapeHtml(gSem.reason) + ' · ' +
+                UI.escapeHtml(gSem.message || '') + '</div>'
+              : '') +
+            (v.reviewWhy
+              ? '<div class="dbg-line is-warn">为什么转复核：' +
+                ({ 'no-vision': '有照片但没有跑视觉模型，等于没人看过这张图',
+                   quality: '画质存疑（拍糊/偏暗），先让人看一眼',
+                   degraded: '模型调用失败，降级成规则判定' }[v.reviewWhy] || v.reviewWhy) + '</div>'
+              : '') +
+            '<div class="dbg-line">严重度：' + v.severity + ' 星' +
+              (v.detail ? '　·　' + UI.escapeHtml(v.detail) : '') + '</div>' +
+          '</div>' +
+
+          '<div class="dbg-sec">' +
+            '<div class="dbg-t">④ 原始返回（看清楚它是不是真说了话）</div>' +
+            '<pre class="dbg-raw">' + UI.escapeHtml(last.raw || '（没有调用模型，所以没有原始返回）') + '</pre>' +
+          '</div>'
+        : '<div class="dbg-empty">还没有提交过判定，只有预判记录。</div>') +
+
+      (pv
+        ? '<div class="dbg-sec">' +
+            '<div class="dbg-t">⑤ 图片一进来时的即时预判</div>' +
+            (pv.ok
+              ? '<div class="dbg-line">认出来的类型：' + typeName(pv.type) +
+                '　置信度 ' + Math.round((pv.confidence || 0) * 100) + '%</div>' +
+                '<div class="dbg-line">给用户的描述建议：' + UI.escapeHtml(pv.desc || '（没给）') + '</div>' +
+                (pv.raw ? '<pre class="dbg-raw">' + UI.escapeHtml(pv.raw) + '</pre>' : '')
+              : '<div class="dbg-line is-warn">没有结果：' +
+                ({ sample: '演示示意图不送模型',
+                   offline: '本地代理没启动',
+                   NOT_RASTER: '不是位图' }[pv.reason] || UI.escapeHtml(pv.reason)) + '</div>') +
+          '</div>'
+        : '') +
+
+      '<div class="dbg-sec">' +
+        '<div class="dbg-t">最近记录</div>' +
+        ((dbg.history || []).length
+          ? '<div class="dbg-list">' + dbg.history.slice(0, 6).map(function (h) {
+              const vv = h.verdict || {};
+              return '<div class="dbg-item">' +
+                '<span class="dbg-when">' + fmtTime(h.at) + '</span>' +
+                '<span class="dbg-what">' +
+                  (vv.pass ? (vv.review ? '放行·复核' : '放行') : '拦下') +
+                  ' · ' + (h.mode === 'deepseek' ? 'DeepSeek' : '本地规则') +
+                  (h.hasPhoto ? (h.raster ? ' · 真图' : ' · 示意图') : ' · 无图') +
+                '</span>' +
+              '</div>';
+            }).join('') + '</div>'
+          : '<div class="dbg-line muted">还没有记录</div>') +
+      '</div>' +
+
+      '<div class="dbg-foot">这些是判定用的原样数据，不参与业务逻辑。' +
+        '本地代理没启动时，图片一律不会被识别内容 —— 只看清晰度、亮度、平坦区这些像素统计。</div>';
+
+    UI.sheet({ title: 'AI 分析过程', sub: '看清楚这张图有没有被模型看过', body: html });
+  }
+
+  function modeLine(st) {
+    if (!st) return '未知';
+    if (st.mode === 'deepseek') return 'DeepSeek 视觉 · ' + (st.model || '') + (st.vision ? ' · 支持图片' : ' · 不带视觉');
+    return '本地规则（' + (st.lastError || '代理未连接') + '）· 图片不会被识别内容';
+  }
+
+  function typeName(k) {
+    return (D.TYPE_LABEL && D.TYPE_LABEL[k]) || k || '—';
   }
 
   function enterAfterLogin(user, who) {

@@ -359,6 +359,11 @@ window.Auth = (function () {
         : '你选择保留原描述，已转人工重点核对');
     }
     if (a.noPhoto) noteParts.push('未附照片（这一类允许）');
+    // 有照片但没跑视觉模型：这不是"画质存疑"，是压根没人看过画面，
+    // 进度里得说明白，否则复核的人会以为机器看过了
+    if (a.reviewWhy === 'no-vision') {
+      noteParts.push('照片没有送进视觉模型（本地 AI 未连接），画面内容未经识别');
+    }
 
     list.push({
       at: at + 1,

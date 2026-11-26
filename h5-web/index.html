@@ -267,6 +267,15 @@
             <span class="tag tag--ok" style="margin-right:2px" id="menuPoints">0 分</span>
             <span class="arrow" data-icon="chevron" data-size="14"></span>
           </button>
+          <!-- 设置里唯一一个"给做东西的人看的"入口：
+               图片到底有没有送进模型、模型说了什么、本地指标是多少，
+               都摆出来，省得靠猜。用户平时不会点，测试时离不开。 -->
+          <button class="menu-item" id="btnAiDebug">
+            <span class="mi" data-icon="spark" data-size="17"></span>
+            <span class="grow">AI 分析过程</span>
+            <span class="tag" style="margin-right:2px" id="aiDebugTag">看最近一次</span>
+            <span class="arrow" data-icon="chevron" data-size="14"></span>
+          </button>
           <button class="menu-item" id="btnLogout">
             <span class="mi" data-icon="back" data-size="17"></span>
             <span class="grow" id="logoutLabel">切换账号 / 退出登录</span>

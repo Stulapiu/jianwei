@@ -84,14 +84,18 @@
         <span class="side-foot-text">演示数据 · 本地运行</span>
       </div>
     </div>
-
-    <button class="collapse-btn" id="btnCollapse" title="收起侧边栏">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M15 6l-6 6 6 6"/>
-      </svg>
-    </button>
   </aside>
+
+  <!-- 收起按钮放在 aside 外面：
+       放里面时 right:-13px 有一半挂在栏外，被 .sidebar 的 overflow:hidden 裁掉，
+       箭头只剩半个。挪到 .app 上按侧边栏宽度定位，既保留"骑在边上"的样式，
+       又不会被裁。 -->
+  <button class="collapse-btn" id="btnCollapse" title="收起侧边栏">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 6l-6 6 6 6"/>
+    </svg>
+  </button>
 
   <!-- ==================== 主区域 ==================== -->
   <main>
@@ -130,8 +134,9 @@
     <!-- 现场模式提示条：只在这时候出现，免得平时占地方 -->
     <div class="live-bar" id="liveBar" hidden>
       <span class="lb-dot"></span>
-      <span class="lb-t"><b>现场模式</b>　演示数据已清空，只显示现场报上来的工单</span>
+      <span class="lb-t"><b>现场模式</b>　演示数据已清空，只显示进入现场模式之后报上来的工单</span>
       <span class="lb-n" id="liveCount">0 条</span>
+      <button class="lb-act" id="btnLiveOlder" hidden>还有更早的</button>
       <button class="lb-act" id="btnLiveClear">清空工单</button>
       <button class="lb-act lb-undo" id="btnLiveUndo" hidden>撤销清空</button>
       <button class="lb-exit" id="btnLiveExit">退出并恢复演示数据</button>

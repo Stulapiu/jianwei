@@ -1413,7 +1413,15 @@
 }
 
 /* ================= 选图 / 选位置面板 ================= */
-.sheet-bd { padding-top: 2px; }
+.sheet-bd {
+  padding-top: 2px;
+  /* 和 .sheet 的 max-height 配套：能滚的是正文，标题和顶部小横条固定 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
 
 .picker {
   display: grid;
@@ -2377,9 +2385,34 @@
   overflow: hidden;
   background: #E8EFEE;
   margin-bottom: 12px;
+  position: relative;
+  cursor: zoom-in;
 }
+/* 以前是 height:168px + object-fit:cover —— 竖着拍的照片会被裁掉大半，
+   详情页里只看得到中间一条。现在按原比例显示，过高的收在 320px 以内，
+   要看全图点一下（打开大图查看）。 */
 .dr-shot-mini img,
-.dr-shot-mini svg { display: block; width: 100%; height: 168px; object-fit: cover; }
+.dr-shot-mini svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  background: #E8EFEE;
+}
+.dr-shot-mini::after {
+  content: "点开看全图";
+  position: absolute;
+  right: 8px; bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  color: #fff;
+  background: rgba(16, 30, 28, .5);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
 
 .dsl-status {
   display: flex;
@@ -2481,3 +2514,141 @@
   color: var(--text-3);
 }
 .cf-why svg { flex: none; margin-top: 1px; color: var(--brand); }
+
+/* ============================================================
+   AI 分析过程（设置页里的调试面板）
+   ------------------------------------------------------------
+   这个面板是给"做这套东西的人"看的：图片有没有进模型、模型说了什么、
+   本地指标是多少、为什么放行/拦下。所以它不需要好看，需要能逐条核对。
+   ============================================================ */
+.dbg-hero {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.dbg-chip {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.dbg-chip.is-pass { background: var(--ok-bg); color: var(--ok); }
+.dbg-chip.is-fail { background: var(--danger-bg); color: var(--danger); }
+.dbg-mode {
+  font-size: 11.5px;
+  color: var(--text-2);
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: var(--line-2);
+}
+.dbg-lat { margin-left: auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.dbg-sec {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 9px;
+  background: var(--card);
+}
+.dbg-t { font-size: 12px; font-weight: 700; margin-bottom: 7px; }
+.dbg-line {
+  font-size: 12px;
+  line-height: 1.62;
+  color: var(--text-2);
+  margin-top: 4px;
+  word-break: break-word;
+}
+.dbg-line.is-ok { color: var(--ok); font-weight: 600; }
+.dbg-line.is-warn { color: var(--warn); font-weight: 600; }
+.dbg-line.muted { color: var(--text-3); }
+.dbg-quote {
+  margin-top: 7px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--brand);
+  background: rgba(23, 116, 104, .05);
+  border-radius: 0 8px 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dbg-tb { width: 100%; border-collapse: collapse; margin: 2px 0 6px; }
+.dbg-tb td { padding: 4px 0; font-size: 11.5px; border-bottom: 1px dashed var(--line); }
+.dbg-tb td.k { color: var(--text-2); width: 78px; }
+.dbg-tb td.v { font-variant-numeric: tabular-nums; font-weight: 700; width: 62px; }
+.dbg-tb td.t { color: var(--text-3); font-size: 10.5px; text-align: right; }
+.dbg-raw {
+  margin: 6px 0 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: #16211f;
+  color: #cfe6e0;
+  font-size: 10.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 190px;
+  overflow: auto;
+}
+.dbg-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.7;
+}
+.dbg-list { display: grid; gap: 6px; }
+.dbg-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.dbg-when { color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
+.dbg-what { color: var(--text-2); }
+.dbg-foot {
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+  padding: 2px 4px 4px;
+}
+
+/* 全屏看大图 */
+.img-view {
+  position: absolute;
+  inset: 0;
+  z-index: 900;
+  background: rgba(8, 16, 15, .94);
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn .18s var(--ease) backwards;
+}
+.img-view.is-out { animation: fadeOut .18s var(--ease) both; }
+.iv-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+.iv-scroll img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+}
+.iv-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: rgba(255, 255, 255, .16);
+  color: #fff;
+  z-index: 2;
+}

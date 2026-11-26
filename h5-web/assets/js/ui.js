@@ -160,6 +160,40 @@
   }
 
   /* ---------------- 工具 ---------------- */
+
+  /**
+   * 全屏看大图。
+   * 详情页里的缩略图受版面限制，竖拍的照片只能看到一段；这里给原比例、
+   * 可双指缩放（浏览器自带）、可上下滑动的完整视图。
+   */
+  function imageView(src, alt) {
+    if (!src) return null;
+    const host = document.getElementById('device') || document.body;
+    const el = document.createElement('div');
+    el.className = 'img-view';
+    el.innerHTML =
+      '<button class="iv-close" aria-label="关闭">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"' +
+        ' stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+      '</button>' +
+      '<div class="iv-scroll"><img src="' + String(src).replace(/"/g, '&quot;') +
+        '" alt="' + escapeHtml(alt || '现场照片') + '"></div>';
+    host.appendChild(el);
+
+    function close() {
+      el.classList.add('is-out');
+      setTimeout(function () { el.remove(); }, 200);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('img')) return;   // 点图片本身不关，方便看清
+      close();
+    });
+    return { el: el, close: close };
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -180,5 +214,9 @@
     return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
   }
 
-  global.UI = { icon: icon, ICONS: ICONS, toast: toast, sheet: sheet, escapeHtml: escapeHtml, fromNow: fromNow, dateText: dateText };
+  global.UI = {
+    icon: icon, ICONS: ICONS, toast: toast, sheet: sheet,
+    imageView: imageView,
+    escapeHtml: escapeHtml, fromNow: fromNow, dateText: dateText
+  };
 })(window);

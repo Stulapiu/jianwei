@@ -671,6 +671,7 @@
           typeLabel: global.Domain ? Domain.type(t).label : t,
           desc: (p.desc || '').trim().slice(0, 40),
           confidence: typeof p.confidence === 'number' ? p.confidence : 0.6,
+          raw: raw,
           latency: Date.now() - t0
         };
       });
@@ -723,6 +724,39 @@
 
     var status = { mode: 'rules', online: false, vision: false, lastError: '', checkedAt: 0 };
 
+    /* ----------------------------------------------------------------
+     * 判定过程留档
+     * ----------------------------------------------------------------
+     * 用户问过一句很实在的话："图片真的通过 AI 识别了吗？"
+     * 这句话不该由界面上的一个绿点来回答。这里把每一次判定的原料、
+     * 指标、两道闸门的结论、模型的原始输出都留一份，设置页里可以原样翻出来看。
+     *
+     * 只留最近几条，存在内存 + localStorage（刷新后还能看上一次）。
+     * 不留原图 —— 只留图片长度和指标，够复盘，也不占空间。
+     * ---------------------------------------------------------------- */
+    var DEBUG_KEY = 'jw.ailog.v2';
+    var LAST = { judge: null, preview: null };
+
+    function note(kind, rec) {
+      rec.at = Date.now();
+      LAST[kind] = rec;
+      try {
+        var all = JSON.parse(localStorage.getItem(DEBUG_KEY) || '[]');
+        if (!Array.isArray(all)) all = [];
+        all.unshift(Object.assign({ kind: kind }, rec));
+        localStorage.setItem(DEBUG_KEY, JSON.stringify(all.slice(0, 6)));
+      } catch (e) { /* 存不进去不影响判定 */ }
+      return rec;
+    }
+
+    /** 读历史：设置页用 */
+    function history() {
+      try {
+        var all = JSON.parse(localStorage.getItem(DEBUG_KEY) || '[]');
+        return Array.isArray(all) ? all : [];
+      } catch (e) { return []; }
+    }
+
     /** 探测代理是否活着。活着就用真模型，否则回落到本地规则。 */
     function probe() {
       if (cfg.mode === 'rules') {
@@ -758,12 +792,48 @@
     }
 
     /**
-     * 主入口：跑完整的两道闸门
-     * @param {Object} ctx { image, type, desc, address, lng, lat, history }
-     * @returns {Promise<Object>} verdict
+     * 主入口：跑完整的两道闸门。
+     * 外面裹一层留档 —— 无论从哪个分支返回，判定过程都能在设置页翻出来。
      */
     function judge(ctx) {
       var t0 = Date.now();
+      return judgeInner(ctx, t0).then(function (v) {
+        note('judge', {
+          mode: status.mode,
+          online: status.online,
+          hasPhoto: !!(ctx.image && String(ctx.image).length > 8),
+          raster: isRasterImage(ctx.image),
+          imageLen: ctx.image ? String(ctx.image).length : 0,
+          typeIn: ctx.type,
+          desc: ctx.desc || '',
+          address: ctx.address || '',
+          metrics: v.metrics || null,
+          raw: v.raw || '',
+          preview: LAST.preview,
+          gates: (v.gates || []).map(function (g) {
+            return {
+              id: g.id, pass: g.pass, reason: g.reason || null,
+              message: g.message || '', detail: (g.detail || '').slice(0, 240)
+            };
+          }),
+          verdict: {
+            pass: v.pass, reason: v.reason || null, message: v.message || '',
+            detail: (v.detail || '').slice(0, 240),
+            type: v.type, typeAdjusted: !!v.typeAdjusted,
+            review: !!v.review, reviewWhy: v.reviewWhy || '',
+            source: v.source, sawImage: !!v.sawImage, seen: v.seen || '',
+            severity: v.severity, latency: v.latency || 0
+          }
+        });
+        return v;
+      });
+    }
+
+    /**
+     * @param {Object} ctx { image, type, desc, address, lng, lat, history }
+     * @returns {Promise<Object>} verdict
+     */
+    function judgeInner(ctx, t0) {
       var hasPhoto = !!(ctx.image && String(ctx.image).length > 8);
 
       /* 没照片的单子（校园网卡、系统故障这类本来就没法拍）：
@@ -931,6 +1001,13 @@
       var severity = sem.severity || estimateSeverity({ type: finalType }, metrics);
       var review = !!env.qualityHint || !!sem.degraded;
 
+      /* 有照片、却没跑上视觉模型 —— 这张单等于没被"看过"。
+         本地指标只回答"清不清晰、亮不亮、平不平"，它回答不了"画面里是不是一处设施"。
+         一张打印纸、一张电脑屏幕、一张人脸，在它眼里都是"清晰、亮度正常、有边缘"。
+         所以这种单不能当干净单混进池子，必须转人工看一眼，并且在结果页说清楚。 */
+      var offlinePhoto = !!metrics && isRasterImage(ctx.image) && !sem.vision;
+      if (offlinePhoto) review = true;
+
       // 摘要与建议必须来自模型。
       // 规则引擎只会按类型套一句「路灯问题待核查」——那是模板，不是判断，
       // 摆出来只会让人以为 AI 已经看过了。宁可不写，也不假装。
@@ -967,6 +1044,13 @@
         degraded: !!sem.degraded,
         qualityHint: env.qualityHint,
         review: passed && review,
+        // 转复核要有个理由，界面才能说人话；三个来源不能混着讲
+        reviewWhy: !passed ? ''
+          : offlinePhoto ? 'no-vision'
+          : env.qualityHint ? 'quality'
+          : sem.degraded ? 'degraded' : '',
+        // 模型的原始输出，只在"分析过程"里给人看，不参与业务判断
+        raw: sem.raw || '',
         noPhoto: !metrics,
         latency: Date.now() - (env.t0 || Date.now())
       };
@@ -1005,14 +1089,32 @@
      * 注意这里**不做**任何本地"猜类型"的兜底 —— 猜错了比不猜更糟。
      */
     function preview(ctx) {
+      var base = {
+        at: Date.now(),
+        mode: status.mode,
+        raster: isRasterImage(ctx.image),
+        imageLen: ctx.image ? String(ctx.image).length : 0,
+        address: ctx.address || ''
+      };
+      function done(r) {
+        LAST.preview = Object.assign({}, base, {
+          ok: !!r.ok,
+          reason: r.reason || (r.ok ? '' : 'unknown'),
+          type: r.type || '', desc: r.desc || '',
+          confidence: r.confidence,
+          isFacility: r.isFacility,
+          raw: (r.raw || '').slice(0, 400)
+        });
+        return r;
+      }
       if (!isRasterImage(ctx.image)) {
-        return Promise.resolve({ ok: false, reason: 'sample' });
+        return Promise.resolve(done({ ok: false, reason: 'sample' }));
       }
       if (status.mode !== 'deepseek') {
-        return Promise.resolve({ ok: false, reason: 'offline', lastError: status.lastError });
+        return Promise.resolve(done({ ok: false, reason: 'offline', lastError: status.lastError }));
       }
-      return previewByDeepSeek(ctx, cfg).catch(function (e) {
-        return { ok: false, reason: String(e && e.message || e) };
+      return previewByDeepSeek(ctx, cfg).then(done).catch(function (e) {
+        return done({ ok: false, reason: String(e && e.message || e) });
       });
     }
 
@@ -1021,6 +1123,10 @@
       preview: preview,
       probe: probe,
       status: function () { return Object.assign({}, status); },
+      /** 「AI 分析过程」用：最近一次判定 + 最近一次预判 + 历史记录 */
+      debug: function () {
+        return { last: LAST.judge, preview: LAST.preview, history: history() };
+      },
       configure: function (patch) {
         Object.assign(cfg, patch || {});
         return probe();

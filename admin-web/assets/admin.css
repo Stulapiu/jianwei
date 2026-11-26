@@ -113,6 +113,8 @@ input, select { font-family: inherit; }
 .app {
   display: flex;
   min-height: 100vh;
+  /* 收起按钮按这个盒子定位（骑在侧边栏边缘上） */
+  position: relative;
 }
 
 /* ---------------- 侧边栏 ---------------- */
@@ -292,7 +294,9 @@ input, select { font-family: inherit; }
 /* 收起按钮：贴在侧边栏右边缘的圆钮 */
 .collapse-btn {
   position: absolute;
-  right: -13px;
+  /* 骑在侧边栏右边缘上。因为现在挂在 .app 上（不在 .sidebar 里），
+     不会再被 overflow:hidden 裁掉半边。 */
+  left: calc(var(--sidebar-w) - 13px);
   top: 78px;
   width: 26px;
   height: 26px;
@@ -305,7 +309,7 @@ input, select { font-family: inherit; }
   border: 1px solid rgba(22, 41, 43, .1);
   color: var(--text-2);
   box-shadow: 0 4px 12px -6px rgba(16, 55, 50, .5);
-  transition: transform .3s var(--spring), color .16s, background .16s;
+  transition: transform .3s var(--spring), color .16s, background .16s, left .44s var(--ease-out);
   z-index: 31;
 }
 .collapse-btn:hover { color: var(--brand); background: #fff; transform: scale(1.1); }
@@ -354,6 +358,7 @@ input, select { font-family: inherit; }
 .app.is-collapsed .brand { padding-left: 7px; padding-right: 7px; }
 .app.is-collapsed .nav-item { padding: 0 13px; justify-content: flex-start; }
 .app.is-collapsed .nav-item svg { transform: scale(1.06); }
+.app.is-collapsed .collapse-btn { left: calc(var(--sidebar-w-min) - 13px); }
 .app.is-collapsed .collapse-btn svg { transform: rotate(180deg); }
 .app.is-collapsed .nav-badge { display: none; }
 

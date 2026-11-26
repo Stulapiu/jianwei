@@ -175,8 +175,31 @@
     if (name === 'tickets') renderTickets();
     if (name === 'me') renderMe();
     if (name === 'rewards') renderRewards();
-    if (name === 'report') renderReportState();
+    if (name === 'report') {
+      /* 和手机端一致：交完一条再回上报页，不要挂着上一条的照片和描述。
+         桌面端更容易踩这个坑 —— 左边填着，右边已经显示结果了。 */
+      if (state.formStale) {
+        state.formStale = false;
+        resetReport();
+      }
+      renderReportState();
+    }
     if (name === 'query') renderQuery($('#queryInput').value);
+  }
+
+  /** 清空上报表单，但保留位置（人通常还在原地） */
+  function resetReport() {
+    state.photos = [];
+    state.photo = null;
+    state.desc = '';
+    state.type = '';
+    state.preview = null;
+    var d = $('#descInput');
+    if (d) { d.value = ''; }
+    var c = $('#descCount');
+    if (c) c.textContent = '0';
+    renderShots();
+    renderTypes();
   }
 
   /* ============================================================
@@ -740,6 +763,8 @@
       lat: state.lat,
       dept: dept.name,
       severity: severity,
+      // 和手机端同一个坑：不在这里写状态，落盘就是 pending，复核队列里查不到
+      status: v.review ? 'review' : 'pending',
       merged: !!merge.merged,
       reporters: merge.reporters || 1,
       kind: kind,
@@ -758,6 +783,7 @@
         soft: !!v.qualityHint,
         qualityHint: v.qualityHint || null,
         review: !!v.review,
+        reviewWhy: v.reviewWhy || '',
         seen: v.seen || '',
         sawImage: !!v.sawImage,
         metrics: v.metrics || null,
@@ -799,6 +825,8 @@
     }
 
     showPass(v, merge, ticket, reward, severity);
+    // 下次回到上报页再清，结果页还要用这份数据
+    state.formStale = true;
     renderMe();
     renderReportState();
     btn.setAttribute('aria-disabled', 'false');
@@ -949,8 +977,11 @@
           '</div>' +
           '<div class="ctx-note">' +
             (v.review
-              ? '<b>这张单会先过人工复核。</b>画质存疑的单子先进复核队列，管理员确认现场后照常派单，' +
-                '不扣信用分，处理完积分照发。<br>'
+              ? (v.reviewWhy === 'no-vision'
+                  ? '<b>这张照片没有被 AI 识别内容。</b>本地 AI 服务没连上，系统只算了清晰度和亮度，' +
+                    '看不出画面里是什么，所以这条会先进人工复核。<br>'
+                  : '<b>这张单会先过人工复核。</b>画质存疑的单子先进复核队列，管理员确认现场后照常派单，' +
+                    '不扣信用分，处理完积分照发。<br>')
               : '') +
             (merge.merged
               ? (merge.kind === 'crowd'
@@ -1081,6 +1112,7 @@
         at: Date.now(), photo: state.photo, severity: sev, estPoints: estPts, dept: dept.name
       });
       toast('已转人工复核 · ' + tk.code, 'ok');
+      state.formStale = true;
       go('tickets');
     });
   }

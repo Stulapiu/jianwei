@@ -181,6 +181,9 @@
       };
 
       o.timeline = seedTimeline(o);
+      // 演示工单的摘要、建议、进度全是数据里预置的，没有经过任何模型。
+      // 标一下，抽屉里才不会让人误以为"系统刚刚分析了这一单"。
+      o.demo = true;
       return o;
     });
   }
@@ -1570,12 +1573,44 @@
 
       '<div class="dr-section">' +
         '<div class="dr-section-title">AI 诊断 · 仅供参考</div>' +
-        (o.summary || o.advice
-          ? '<div class="dr-note">' + escapeHtml(o.summary || '') +
-            (o.advice ? '<br><br><b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) : '') +
-            '</div>'
-          : '<div class="dr-note">这条没有 AI 诊断 —— 本地代理没启动，或者模型没有返回摘要。' +
-            '不要拿模板话充数，直接看下面的现场记录判断。</div>') +
+        (function () {
+          /* 只有模型真看过图，摘要才算"AI 诊断"。
+             早期版本会把用户自己写的一句话当摘要塞进来，看起来像模型判断，
+             实际是复述 —— 值班的人会因此放弃自己看照片。这类一律标出来。 */
+          var a = o.analysis || {};
+          var byModel = a.source === 'deepseek';
+          var sawImg = !!a.sawImage;
+          var head = '';
+          if (o.live) {
+            head = '<div class="ai-facts" style="margin-bottom:8px">' +
+              '<span class="f-item">' +
+                (sawImg ? '视觉模型看过图' : (byModel ? '模型看过，但没有图' : '图片未送模型')) +
+              '</span>' +
+              '<span class="f-item">' + (byModel ? 'DeepSeek' : '本地规则') + '</span>' +
+              (a.latency ? '<span class="f-item">' + a.latency + ' ms</span>' : '') +
+              '</div>';
+          }
+          if (o.summary || o.advice) {
+            return head +
+              (o.demo
+                ? '<div class="dr-note" style="background:rgba(23,116,104,.05);border-color:rgba(23,116,104,.16);margin-bottom:8px">' +
+                  '演示数据：这段摘要和建议是预置文本，不是模型现场判的。' +
+                  '想验证真实判定，开「现场模式」用手机报一条。</div>'
+                : '') +
+              (!byModel && o.live
+                ? '<div class="dr-note" style="background:rgba(201,123,32,.06);border-color:rgba(201,123,32,.2);margin-bottom:8px">' +
+                  '⚠ 下面这段不是模型写的：本地规则只按类型套话，没看过照片内容。</div>'
+                : '') +
+              '<div class="dr-note">' + escapeHtml(o.summary || '') +
+              (o.advice ? '<br><br><b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) : '') +
+              '</div>';
+          }
+          return head + '<div class="dr-note">这条没有 AI 诊断 —— ' +
+            (sawImg || byModel
+              ? '模型没有返回摘要。'
+              : '本地代理没启动，图片没有送去识别，系统不知道画面里是什么。') +
+            '不要拿模板话充数，直接看下面的现场记录判断。</div>';
+        })() +
       '</div>' +
 
       (o.live ? liveSection(o) : '') +
@@ -1734,7 +1769,14 @@
     trash: null,
     // 被清掉的编码要拦一下，否则 syncLive 两秒后从编码表把它们又捞回来，
     // 用户会以为"清空没生效"
-    muted: {}
+    muted: {},
+    /* 进入现场模式的时刻。
+       编码表是长期存在的，里面躺着昨天、上午、上一次演示报的所有单子。
+       以前一进现场模式就把它们全捞进来，台上说"这是刚收到的"，屏幕上却是
+       二十条历史记录 —— 这跟放一堆假数据没区别。现在默认只认这个时间点之后的。 */
+    since: 0,
+    // 想看更早的就手动点开，而不是默认塞给你
+    includeOld: false
   };
   var BLOCK_LOG_SEED = BLOCK_LOG.slice();
 
@@ -1789,10 +1831,43 @@
       .map(ticketToOrder);
   }
 
+  /**
+   * 现场模式下"该显示哪些单子"。
+   *
+   * 编码表是长期账本，默认只取进入现场模式之后上报的；
+   * 之前的历史单不删、不丢，藏在「显示更早的 N 条」后面，想看再点。
+   * 这样"这一条是刚刚报的"才是一句真话。
+   */
+  function livePool() {
+    var all = liveOrders();
+    if (LIVE.includeOld || !LIVE.since) return { pool: all, older: 0 };
+    /* 宽限 3 分钟，不是 5 秒。
+       真实流程常常是"先在手机上报一条，再回头点开现场模式"——掐着开关那一刻算，
+       刚报的那条反而会被当成历史挡住，人只会觉得"我的单没进来"。
+       3 分钟足够覆盖这个来回，又不至于把上午演示时留的单子拖进来。 */
+    var cut = LIVE.since - 3 * 60 * 1000;
+    var fresh = all.filter(function (o) { return o.createdAt >= cut; });
+    return { pool: fresh, older: all.length - fresh.length };
+  }
+
+  /** 顶部那条提示里的"还有 N 条更早的" */
+  function renderLiveMeta(older) {
+    var btn = $('#btnLiveOlder');
+    if (!btn) return;
+    if (older > 0 && !LIVE.includeOld) {
+      btn.hidden = false;
+      btn.textContent = '还有 ' + older + ' 条更早的';
+      btn.title = '点开把这 ' + older + ' 条也显示出来（之前演示时报的）';
+    } else {
+      btn.hidden = true;
+    }
+  }
+
   function syncLive(quiet) {
     if (!LIVE.on) return;
 
-    var fresh = liveOrders();
+    var pack = livePool();
+    var fresh = pack.pool;
     var added = 0;
 
     fresh.forEach(function (o) {
@@ -1825,6 +1900,7 @@
     var n = ORDERS.length;
     var el = $('#liveCount');
     if (el) el.textContent = n + ' 条';
+    renderLiveMeta(pack.older);
 
     if (added) {
       renderAll();
@@ -1915,26 +1991,33 @@
       LIVE.seen = {};
       LIVE.trash = null;
       LIVE.muted = {};
+      LIVE.since = Date.now();
+      LIVE.includeOld = false;
       state.expanded = {};
       if ($('#btnLiveUndo')) $('#btnLiveUndo').hidden = true;
       if ($('#btnLiveClear')) $('#btnLiveClear').hidden = false;
 
-      ORDERS.unshift.apply(ORDERS, liveOrders());
+      var pack = livePool();
+      ORDERS.unshift.apply(ORDERS, pack.pool);
       ORDERS.forEach(function (o) { LIVE.seen[o.id] = 1; });
 
       $('#liveCount').textContent = ORDERS.length + ' 条';
+      renderLiveMeta(pack.older);
       renderAll();
 
       // 每 2 秒看一次编码表，现场报的会自己冒出来
       clearInterval(LIVE.timer);
       LIVE.timer = setInterval(function () { syncLive(false); }, 2000);
 
-      toast('演示数据已清空，等待现场上报', 'ok');
+      toast('已进入现场模式 · 从现在起新报的才会进来', 'ok');
     } else {
       clearInterval(LIVE.timer);
       LIVE.timer = null;
       LIVE.trash = null;
       LIVE.muted = {};
+      LIVE.since = 0;
+      LIVE.includeOld = false;
+      renderLiveMeta(0);
       if ($('#btnLiveUndo')) $('#btnLiveUndo').hidden = true;
       if ($('#btnLiveClear')) $('#btnLiveClear').hidden = false;
 
@@ -2180,6 +2263,7 @@
     var why = [];
     if (a.manual) why.push('用户主动转人工');
     if (a.conflict) why.push('图文内容对不上');
+    if (a.reviewWhy === 'no-vision') why.push('照片没经过 AI 识别');
     if (a.review) why.push('画质存疑');
     if (!why.length) why.push('需要人工确认现场');
 
@@ -2188,6 +2272,15 @@
 
     return '<div class="dr-section dr-review">' +
       '<div class="dr-section-title">待人工复核 · ' + escapeHtml(why.join(' / ')) + '</div>' +
+
+      /* 这条一定要摆在最上面。没跑视觉模型时，系统对"画面里是什么"一无所知，
+         值班的人如果只看到"拍照存疑"四个字，会以为机器看过但没看清。 */
+      (a.reviewWhy === 'no-vision'
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">关键</span>' +
+          '<span class="dr-rv-v" style="color:var(--warn);font-weight:600">' +
+          '这张单没有做图像识别 —— 本地 AI 服务没连上，系统只算了清晰度和亮度，' +
+          '没看过画面。请以照片和用户描述为准判断。</span></div>'
+        : '') +
 
       '<div class="dr-rv-row"><span class="dr-rv-k">用户描述</span>' +
         '<span class="dr-rv-v">' + (o.desc ? escapeHtml(o.desc) : '（没有填写）') + '</span></div>' +
@@ -2362,6 +2455,18 @@
     $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
     $('#btnLiveClear').addEventListener('click', clearOrders);
     $('#btnLiveUndo').addEventListener('click', undoClear);
+
+    // 把进入现场模式之前的历史单捞进来 —— 只在人主动点的时候发生
+    var btnOlder = $('#btnLiveOlder');
+    if (btnOlder) {
+      btnOlder.addEventListener('click', function () {
+        LIVE.includeOld = true;
+        btnOlder.hidden = true;
+        var before = ORDERS.length;
+        syncLive(true);
+        toast('已把更早的 ' + (ORDERS.length - before) + ' 条也显示出来', 'ok');
+      });
+    }
 
     // 复核提示条上的「只看待复核」：等于点一下筛选里的那一项
     var btnRv = $('#btnReviewOnly');
