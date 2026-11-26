@@ -189,6 +189,13 @@ window.Payout = (function () {
       sess.points = (sess.points || 0) + pts;
       sess.resolvedCnt = (sess.resolvedCnt || 0) + 1;
       write(AUTH_KEY, sess);
+
+      // 只给"本人在这台设备上"的情况记流水：别人的单子后台办结，
+      // 这台机器上根本没有他的余额，记了反而对不上。
+      if (window.Ledger) {
+        window.Ledger.push('points', pts,
+          '工单 ' + key + ' 办结' + (kind === 'merged' ? '（合并单）' : ''), sess.points);
+      }
     }
 
     // ---- 工单本身 ----

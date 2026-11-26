@@ -36,6 +36,9 @@
       <button class="rail-btn" data-view="query" title="查进度">
         <span class="ri" data-icon="search"></span><span class="rl">查进度</span>
       </button>
+      <button class="rail-btn" data-view="rewards" title="积分乐园">
+        <span class="ri" data-icon="gift"></span><span class="rl">积分</span>
+      </button>
       <button class="rail-btn" data-view="me" title="我的">
         <span class="ri" data-icon="user"></span><span class="rl">我的</span>
       </button>
@@ -232,6 +235,23 @@
         </div>
       </section>
 
+      <!-- ---------- 积分乐园 ---------- -->
+      <section class="view" data-view="rewards">
+        <div class="card">
+          <div class="card-hd">
+            <div>
+              <div class="card-t">积分乐园</div>
+              <div class="card-s" id="rwSub">当前 0 分</div>
+            </div>
+            <div class="seg seg--sm" id="rwSeg">
+              <button class="seg-btn is-on" data-rw="lottery">抽奖</button>
+              <button class="seg-btn" data-rw="mall">商城</button>
+            </div>
+          </div>
+          <div id="rwBody"></div>
+        </div>
+      </section>
+
       <!-- ---------- 我的 ---------- -->
       <section class="view" data-view="me">
         <div class="me-grid">
@@ -273,6 +293,17 @@
               <div><b class="num is-ok" id="meResolved">0</b><span>已解决</span></div>
               <div><b class="num" id="meInvalid">0</b><span>无效提交</span></div>
             </div>
+          </div>
+
+          <div class="card">
+            <div class="card-hd">
+              <div class="card-t">积分与信用变动</div>
+              <div class="seg seg--sm" id="lgSeg">
+                <button class="seg-btn is-on" data-lg="points">积分</button>
+                <button class="seg-btn" data-lg="credit">信用分</button>
+              </div>
+            </div>
+            <div class="lg-list" id="meLedger"></div>
           </div>
 
           <div class="card">
@@ -347,7 +378,9 @@
 
 <script src="../shared/tilemap.js"></script>
 <script src="../shared/domain.js"></script>
+<script src="../shared/ledger.js"></script>
 <script src="../shared/payout.js"></script>
+<script src="../shared/rewards.js"></script>
 <script src="../shared/auth.js"></script>
 <script src="../shared/agent.js"></script>
 <script src="../shared/data.js"></script>

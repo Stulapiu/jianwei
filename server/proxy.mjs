@@ -55,7 +55,7 @@ loadDotEnv();
 
 const API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const API_BASE = process.env.DEEPSEEK_BASE || 'https://api.deepseek.com';
-const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-flash';
 
 /* --------------------------------------------------------------------------
  * MIME
@@ -227,7 +227,8 @@ code{background:rgba(43,122,120,.09);padding:1px 5px;border-radius:4px;font-size
 async function forwardChat(req, res) {
   let payload;
   try {
-    const raw = await readBody(req);
+    // 带图的请求：手机原图 base64 后常见 1–4MB，留 24MB 余量
+    const raw = await readBody(req, 24 * 1024 * 1024);
     payload = JSON.parse(raw || '{}');
   } catch (e) {
     return json(res, 400, { error: { message: '请求体不是合法 JSON：' + e.message } });
@@ -255,7 +256,9 @@ async function forwardChat(req, res) {
         messages: payload.messages || [],
         temperature: payload.temperature ?? 0.2,
         max_tokens: payload.max_tokens || 600,
-        response_format: payload.response_format
+        response_format: payload.response_format,
+        // 不传就是默认开思维链：判定这种短任务会被拖到十几秒，还多花 token
+        thinking: payload.thinking || { type: 'disabled' }
       })
     });
 
@@ -303,6 +306,8 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, {
       ok: true,
       hasKey: !!API_KEY,
+      // deepseek-flash 原生支持图片输入，前端据此决定要不要把原图一起发
+      vision: true,
       model: MODEL,
       upstream: API_BASE
     });
@@ -326,7 +331,7 @@ server.listen(PORT, HOST, () => {
   console.log(line);
   console.log(`  用户端    http://localhost:${PORT}/h5-web/index.html`);
   console.log(`  管理端    http://localhost:${PORT}/admin-web/index.html`);
-  console.log(`  AI 模式   ${API_KEY ? 'DeepSeek · ' + MODEL : '本地规则引擎（未配置 DEEPSEEK_API_KEY）'}`);
+  console.log(`  AI 模式   ${API_KEY ? 'DeepSeek 视觉 · ' + MODEL : '本地规则引擎（未配置 DEEPSEEK_API_KEY）'}`);
   console.log(line);
   console.log('  按 Ctrl+C 停止\n');
 });

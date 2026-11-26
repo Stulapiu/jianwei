@@ -2265,3 +2265,92 @@
 }
 .mall-card[aria-disabled="true"] { opacity: .52; }
 
+
+/* ============================================================
+   上报详情 / 流水账
+   ------------------------------------------------------------
+   两块内容都放在弹层里，共用一个前提：
+   用户点进来是为了"看清楚"，所以字要能读、对比要强，
+   不要再用灰色小字把关键信息压下去。
+   ============================================================ */
+
+.report-item { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.report-item:active { transform: scale(.994); }
+
+.dr-shot-mini {
+  border-radius: var(--r-m);
+  overflow: hidden;
+  background: #E8EFEE;
+  margin-bottom: 12px;
+}
+.dr-shot-mini img,
+.dr-shot-mini svg { display: block; width: 100%; height: 168px; object-fit: cover; }
+
+.dsl-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.dsl-pt {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dsl-h {
+  margin: 16px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  letter-spacing: .02em;
+}
+.dsl-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-light);
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.75;
+}
+.dsl-note b { color: var(--brand-deep); font-weight: 600; }
+.dsl-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ---------- 流水 ---------- */
+.lg-list { display: flex; flex-direction: column; }
+.lg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.lg-row:last-child { border-bottom: 0; }
+.lg-main { flex: 1; min-width: 0; }
+.lg-why { font-size: 12.5px; color: var(--text); line-height: 1.5; }
+.lg-time { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+.lg-d {
+  flex: none;
+  text-align: right;
+  font-family: var(--font-num);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.lg-d small { display: block; font-size: 10px; font-weight: 500; color: var(--text-3); margin-top: 2px; }
+.lg-d.is-up { color: var(--ok); }
+.lg-d.is-down { color: var(--danger); }

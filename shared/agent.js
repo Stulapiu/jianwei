@@ -341,7 +341,9 @@
   var SYSTEM_PROMPT = [
     '你是「见微」系统的上报质检员。你的唯一任务：判断一条来自校园/乡村居民的公共设施问题上报，是否值得进入工单池。',
     '',
-    '你拿不到图片本身，但会收到一组图像统计指标。这些指标是真实测量值，请按物理意义理解：',
+    '你会随消息收到上报人拍的原图（若消息里没有图，说明这次只有统计指标，按指标推断）。',
+    '有图时以画面为准：先看图，再看文字。文字描述只作参考——很多人写不全，但照片不会撒谎。',
+    '同时会给出一组程序测量指标（同一张图算出来的），用来印证你的观察，不是让你复述数字：',
     '  sharpScore  0-100，清晰度（拉普拉斯方差归一化）。低于 30 基本是糊的。',
     '  brightness  0-1，平均亮度。低于 0.14 是黑图或夜间无光，高于 0.93 是过曝。',
     '  saturation  0-1，平均饱和度。',
@@ -350,21 +352,33 @@
     '  dominant    主导色彩类型，取值 outdoor-green / sky-water / document-screen / flat-graphic / mixed。',
     '',
     '判定三条标准，任一不满足即判为不通过：',
-    '  1. 图像可用：不是糊图、黑图、过曝、截图、纯色图。',
-    '  2. 内容对题：从图像指标 + 用户描述看，画面里应当存在公共设施，而不是风景、人像、宠物、美食。',
-    '  3. 类型一致：用户描述的问题，与用户选择的分类必须是同一类。例如选了「照明路灯」，描述却写「水管漏水」，则不一致。',
+    '  1. 图像可用：能看清现场。糊到认不出、全黑、过曝、纯色图、屏幕截图、聊天记录，判不通过。',
+    '  2. 内容对题：画面里确实是一处公共设施或公共空间的问题（路面裂缝、井盖缺失、路灯不亮、水管漏水、垃圾堆积、护栏损坏、线缆外露、绿化缺损……）。',
+    '     若拍的是风景、人像、宠物、美食、室内私物，判不通过，reason 用 non-facility。',
+    '     不允许"猜"：画面里找不出问题时，宁可判不通过，也不要替用户编一个出来。',
+    '  3. 类型一致：画面中的问题，与用户选的类型必须是同一类。选「照明路灯」却拍的是水管漏水，判不通过，reason 用 mismatch。',
+    '     若两种解释都说得通（例如积水既可算给排水、也涉路面），按用户所选类型通过，并在 detail 里注明。',
     '',
     '同时给出：',
+    '  seen      40 字以内，只写画面上实际看到的东西和位置关系（例如「夜间路面正中一处积水，反光，旁边是路缘石」）。',
+    '            这一项用于核对是否真的看了图：不要写推断，不要写"可能""似乎"，不要复述用户描述。',
     '  severity  1-5 的紧急度整数。判断依据是「对人身安全的威胁程度」和「影响范围」，不是用户有多着急。',
     '            5 = 可能直接伤人的（井盖缺失、电线外露、护栏脱落）；',
     '            4 = 有安全隐患但不立即伤人；3 = 影响正常使用；2 = 影响体验；1 = 观感问题。',
     '  summary   20 字以内的问题摘要，动词开头，例如「路灯灯罩破损，夜间无照明」。',
     '  advice    30 字以内给管理端的处置建议，要具体到动作，例如「建议夜间带电检修，重点查线路接头」。',
     '',
+    '几条边界，别踩：',
+    '  - 画质以本地指标为准。只有你自己也看不清现场时才判 blur/overexposed；',
+    '    夜里路灯不亮、雨天积水这类本来就暗，别因为画面暗就驳回——那是它该有的样子。',
+    '  - 不认识的设施不要硬编，用「疑似」表述。',
+    '  - 严格按用户选的那一类判"像不像"，不要因为你觉得该归别的部门就驳回。',
+    '',
     '语气要求：拒绝时不要像机器在驳回。用「建议换一张」而不是「不符合要求」。',
     '',
     '严格只输出 JSON，不要 markdown 代码块，不要任何解释文字。字段：',
     '{',
+    '  "seen": "40 字内，画面上实际看到的东西",',
     '  "pass": true|false,',
     '  "reason": "blur"|"dark"|"overexposed"|"flat"|"non-facility"|"mismatch"|null,',
     '  "message": "给用户看的一句话，20 字内，温和",',
@@ -375,16 +389,35 @@
     '}'
   ].join('\n');
 
-  function buildUserPrompt(ctx) {
+  /**
+   * 这张图能不能直接喂给模型。
+   * 只认位图：演示用的样例图是 SVG 插画，模型会正确判定"这不是照片"，
+   * 反而把演示流程卡死；所以样例图一律走指标 + 本地规则。
+   */
+  function isRasterImage(src) {
+    if (!src || typeof src !== 'string') return false;
+    if (/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(src)) {
+      // 48 MiB 是上游上限，本地代理也有闸，8 MiB 以上直接不传图，免得整条请求失败
+      return src.length <= 8 * 1024 * 1024;
+    }
+    return /^https?:\/\/\S+\.(jpe?g|png|webp|gif)(\?\S*)?$/i.test(src);
+  }
+
+  function buildUserPrompt(ctx, opts) {
+    var o = opts || {};
     var m = ctx.metrics || {};
     var typeLabel = global.Domain ? Domain.type(ctx.type).label : ctx.type;
     var lines = [
+      o.hasImage
+        ? '【图片】消息里附了原图一张，请直接看画面。'
+        : '【图片】本条没有原图，只能依据下面的指标推断，请保守判断。',
+      '',
       '【上报内容】',
       '问题类型：' + typeLabel,
       '用户描述：' + (ctx.desc ? '「' + ctx.desc + '」' : '（未填写）'),
       '上报地点：' + (ctx.address || '未知'),
       '',
-      '【图像指标（真实测量）】',
+      '【图像指标（同一张图的程序测量，可交叉印证）】',
       '清晰度 sharpScore：' + (m.sharpScore != null ? m.sharpScore : '未知'),
       '亮度 brightness：' + (m.brightness != null ? m.brightness : '未知'),
       '饱和度 saturation：' + (m.saturation != null ? m.saturation : '未知'),
@@ -404,15 +437,29 @@
   }
 
   function judgeByDeepSeek(ctx, cfg) {
+    var hasImage = isRasterImage(ctx.image);
+    var prompt = buildUserPrompt(ctx, { hasImage: hasImage });
+
     var body = {
-      model: cfg.model || 'deepseek-chat',
+      model: cfg.model || 'deepseek-flash',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(ctx) }
+        {
+          role: 'user',
+          content: hasImage
+            ? [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: ctx.image, detail: 'high' } }
+              ]
+            : prompt
+        }
       ],
       temperature: 0.2,
-      max_tokens: 500,
-      response_format: { type: 'json_object' }
+      max_tokens: 600,
+      response_format: { type: 'json_object' },
+      // 判定是短任务：开思维链只会把等待从 2 秒拉到 10 秒、还多花钱。
+      // 约束力交给 prompt 里的字段定义。
+      thinking: { type: 'disabled' }
     };
 
     var url = (cfg.endpoint || '').replace(/\/+$/, '') + '/chat/completions';
@@ -443,6 +490,9 @@
           severity: clampSeverity(parsed.severity),
           summary: parsed.summary || '',
           advice: parsed.advice || '',
+          // 模型自述"看到了什么"，用来核对它是否真把图看进去了
+          seen: parsed.seen || '',
+          vision: hasImage,
           source: 'deepseek',
           latency: Date.now() - t0,
           raw: raw
@@ -495,7 +545,7 @@
       timeout: opts.timeout || 12000
     };
 
-    var status = { mode: 'rules', online: false, lastError: '', checkedAt: 0 };
+    var status = { mode: 'rules', online: false, vision: false, lastError: '', checkedAt: 0 };
 
     /** 探测代理是否活着。活着就用真模型，否则回落到本地规则。 */
     function probe() {
@@ -516,6 +566,7 @@
           status.mode = status.online ? 'deepseek' : 'rules';
           status.model = (j && j.model) || cfg.model;
           status.hasKey = !!(j && j.hasKey);
+          status.vision = !!(j && j.vision);
           status.lastError = '';
           status.checkedAt = Date.now();
           return status;
@@ -550,6 +601,9 @@
             message: vision.message,
             severity: 0,
             source: 'rules',
+            seen: '',
+            sawImage: false,
+            metrics: metrics,
             latency: Date.now() - t0
           });
         }
@@ -573,22 +627,23 @@
           var gates = [vision, sem];
           var severity = sem.severity || estimateSeverity(ctx, metrics);
 
-          /* 一条重要的边界：模型看不到图，只能看到统计量。
-             所以它没有资格否决"画质"——那是本地指标该管的事，
-             而且是确定性的。模型如果拿一堆数字推断"这图太平淡"，
-             就会把夜里的路灯实拍全部毙掉，而路灯问题恰好都发生在夜里。
-             这里把视觉类理由降级成"建议"，只保留语义类（类型错配）的否决权。 */
+          /* 否决权怎么分，取决于模型到底看到了什么。
+             —— 有图（vision=true）：模型手里是原始画面，是这道闸门里最有资格说话的一方，
+                它的判断直接采纳。否则就等于"让它看，又不信它"。
+             —— 没图（样例插画、或者关闭了视觉）：它只是拿几个统计数字在猜。
+                拿数字猜"这图太平淡"，会把夜里的路灯实拍全部毙掉，
+                而路灯问题恰好都发生在夜里。这种情况一律降级成建议。 */
           var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
           var soft = false;
           if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
-            soft = true;
+            soft = !sem.vision;
           }
 
-          /* 同理，语义否决也要有本地规则背书。
-             模型的判断会飘：同一段"路面积水"，它可能算给排水也可能算道路破损。
-             而 domain.js 里的 also 兼容表是人工校过的领域知识。
-             所以规则是：模型 + 本地规则一致才拦，只有模型反对就降级成温馨提示。 */
-          if (!soft && sem.pass === false && sem.reason === 'mismatch' && sem.source === 'deepseek') {
+          /* 类型错配在有图时同理。没图时还要本地规则背书：
+             domain.js 里的 also 兼容表是人工校过的领域知识，
+             同一段"路面积水"，模型可能算给排水，也可能算道路破损。 */
+          if (!soft && sem.pass === false && sem.reason === 'mismatch'
+              && sem.source === 'deepseek' && !sem.vision) {
             var localSem = gateSemanticRules(local);
             if (localSem.pass) soft = true;
           }
@@ -598,13 +653,19 @@
             gates: gates,
             reason: soft ? null : sem.reason,
             message: sem.message,
-            detail: soft ? '模型仅凭统计量认为画质偏弱，本地指标判定通过，已按通过处理' : sem.detail,
+            detail: soft
+              ? '模型没拿到原图，只凭统计量认为画质偏弱；本地指标判定通过，已按通过处理'
+              : sem.detail,
             softHint: soft ? sem.message : null,
             suggestType: sem.suggestType,
             summary: sem.summary || autoSummary(ctx),
             advice: sem.advice || autoAdvice(ctx),
             severity: severity,
             source: sem.source || 'rules',
+            // 模型自述的"看到了什么" —— 后台抽屉里展示，证明这次是真看了图
+            seen: sem.seen || '',
+            sawImage: !!sem.vision,
+            metrics: metrics,
             degraded: !!sem.degraded,
             latency: Date.now() - t0
           });

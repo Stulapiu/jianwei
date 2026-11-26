@@ -185,8 +185,13 @@
 }
 .tm-me {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 0;
   height: 0;
+  /* 位置靠 translate3d 写入（见 tilemap.js 的 placeMe），
+     这里提成独立合成层，拖动时不再逐帧重排 */
+  will-change: transform;
 }
 .tm-me-ring {
   position: absolute;
@@ -197,6 +202,9 @@
   border-radius: 50%;
   background: rgba(30, 123, 214, .26);
   animation: tmMePulse 2.6s ease-out infinite;
+  /* 只动 transform/opacity；backface 关掉能少一层缓存副本 */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .tm-me-dot {
   position: absolute;
@@ -1330,8 +1338,101 @@ textarea::placeholder { color: #B6C2C0; }
   .me-grid { grid-template-columns: 1fr; }
 }
 
+/* ============================================================
+   积分乐园 · 变动记录（桌面版）
+   ------------------------------------------------------------
+   屏幕宽，就别用卡片墙了：一行一件，名称 / 说明 / 价格三列对齐，
+   扫起来比一排方块快。
+   ============================================================ */
+
+.btn--sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.rw-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-radius: var(--r-m);
+  background: linear-gradient(135deg, var(--brand-tint), #fff);
+  border: 1px solid var(--brand-light);
+}
+.rw-hero-t { font-size: 14px; font-weight: 600; color: var(--brand-deep); }
+.rw-hero-s { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+
+.rw-rows, .rw-group { display: flex; flex-direction: column; }
+.rw-group { margin-bottom: 16px; }
+.rw-group-h {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: .04em;
+  margin: 4px 0 6px;
+}
+
+.rw-row {
+  display: grid;
+  grid-template-columns: 1.1fr 2fr 76px 88px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  transition: background .15s ease;
+}
+.rw-row:hover { background: var(--brand-tint); }
+.rw-name { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 7px; }
+.rw-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 10px;
+  font-weight: 600;
+}
+.rw-desc { font-size: 11.5px; color: var(--text-3); }
+.rw-pct { font-size: 12px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+.rw-cost { font-size: 12.5px; font-weight: 600; color: var(--warn); text-align: right; }
+.rw-last {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--brand-tint);
+  border: 1px dashed var(--brand-light);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.rw-last b { color: var(--brand-deep); }
+
+/* ---------- 变动记录 ---------- */
+.lg-list { display: flex; flex-direction: column; }
+.lg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line-2);
+}
+.lg-row:last-child { border-bottom: 0; }
+.lg-main { flex: 1; min-width: 0; }
+.lg-why { font-size: 12.5px; color: var(--text); }
+.lg-time { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+.lg-d {
+  font-family: var(--font-num);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.lg-d.is-up { color: var(--ok); }
+.lg-d.is-down { color: var(--danger); }
+
 </style>
-<!-- 单文件构建 · 2026-11-24 07:14:56 · CSS×2 JS×8 -->
+<!-- 单文件构建 · 2026-11-26 12:43:23 · CSS×2 JS×10 -->
 </head>
 <body>
 
@@ -1359,6 +1460,9 @@ textarea::placeholder { color: #B6C2C0; }
       </button>
       <button class="rail-btn" data-view="query" title="查进度">
         <span class="ri" data-icon="search"></span><span class="rl">查进度</span>
+      </button>
+      <button class="rail-btn" data-view="rewards" title="积分乐园">
+        <span class="ri" data-icon="gift"></span><span class="rl">积分</span>
       </button>
       <button class="rail-btn" data-view="me" title="我的">
         <span class="ri" data-icon="user"></span><span class="rl">我的</span>
@@ -1556,6 +1660,23 @@ textarea::placeholder { color: #B6C2C0; }
         </div>
       </section>
 
+      <!-- ---------- 积分乐园 ---------- -->
+      <section class="view" data-view="rewards">
+        <div class="card">
+          <div class="card-hd">
+            <div>
+              <div class="card-t">积分乐园</div>
+              <div class="card-s" id="rwSub">当前 0 分</div>
+            </div>
+            <div class="seg seg--sm" id="rwSeg">
+              <button class="seg-btn is-on" data-rw="lottery">抽奖</button>
+              <button class="seg-btn" data-rw="mall">商城</button>
+            </div>
+          </div>
+          <div id="rwBody"></div>
+        </div>
+      </section>
+
       <!-- ---------- 我的 ---------- -->
       <section class="view" data-view="me">
         <div class="me-grid">
@@ -1597,6 +1718,17 @@ textarea::placeholder { color: #B6C2C0; }
               <div><b class="num is-ok" id="meResolved">0</b><span>已解决</span></div>
               <div><b class="num" id="meInvalid">0</b><span>无效提交</span></div>
             </div>
+          </div>
+
+          <div class="card">
+            <div class="card-hd">
+              <div class="card-t">积分与信用变动</div>
+              <div class="seg seg--sm" id="lgSeg">
+                <button class="seg-btn is-on" data-lg="points">积分</button>
+                <button class="seg-btn" data-lg="credit">信用分</button>
+              </div>
+            </div>
+            <div class="lg-list" id="meLedger"></div>
           </div>
 
           <div class="card">
@@ -2042,8 +2174,10 @@ textarea::placeholder { color: #B6C2C0; }
     function placeMe() {
       if (!meEl || !state.me) return;
       var p = toPixel(state.me[0], state.me[1]);
-      meEl.style.left = p.x + 'px';
-      meEl.style.top = p.y + 'px';
+      // 用 transform 而不是 left/top：拖动时每帧都改 left/top 会触发布局，
+      // 光圈那圈半透明的脉冲动画就会糊出一串残影。
+      // transform 走合成层，跟瓦片一起由 GPU 平移，不会留下痕迹。
+      meEl.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
       var pad = 120;
       var on = p.x > -pad && p.x < state.width + pad &&
                p.y > -pad && p.y < state.height + pad;
@@ -2553,6 +2687,94 @@ textarea::placeholder { color: #B6C2C0; }
 })(typeof window !== 'undefined' ? window : this);
 
 </script>
+<script data-from="../shared/ledger.js">
+/* ==========================================================================
+ * ledger.js — 信用分 / 积分的流水账
+ * --------------------------------------------------------------------------
+ * 为什么单独记一本账：
+ *
+ * 「积分 640」这个数字本身没有说服力。用户真正会问的是三句话——
+ * 「这 80 分是哪来的」「上次那 20 分为啥扣了」「怎么比昨天还少了」。
+ * 只存余额答不了这些，所以每动一次，就留一条：什么时候、因为什么、±多少、之后剩多少。
+ *
+ * 两条原则：
+ *   1. 只记已经发生的，不记"预计"。预估 80 分写在工单上，不入账；
+ *      办结到账那一刻才进流水。否则用户会以为已经拿到了。
+ *   2. 余额一起存。只存增量的话，一旦有别的路径改过余额（比如后台补发），
+ *      流水和现实就对不上，解释起来反而更费劲。
+ *
+ * 存在 localStorage，按用户 id（学号 / 手机号 / 设备号）分桶，最多留 120 条。
+ * ========================================================================== */
+
+window.Ledger = (function (global) {
+  'use strict';
+
+  var KEY = 'jw.ledger.v1';
+  var MAX = 120;
+
+  function read() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+
+  function write(v) {
+    try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* 满了就算了 */ }
+  }
+
+  /** 同一个人在不同端（游客设备号 / 登录账号）是两个桶，这里取当前身份 */
+  function who() {
+    var A = global.Auth;
+    var s = A && A.get ? A.get() : null;
+    if (s && s.id) return s.id;
+    return A && A.deviceId ? A.deviceId() : 'anon';
+  }
+
+  /**
+   * @param {'credit'|'points'} kind
+   * @param {number} delta   正负都行
+   * @param {string} why     给人看的原因，别写英文键名
+   * @param {number} after   变动后的余额
+   */
+  function push(kind, delta, why, after) {
+    var d = Math.round(Number(delta) || 0);
+    if (!d) return;
+    var all = read();
+    var id = who();
+    var arr = all[id] || (all[id] = []);
+    arr.unshift({
+      at: Date.now(),
+      k: kind,
+      d: d,
+      why: why || '',
+      after: after != null ? Math.round(Number(after)) : null
+    });
+    if (arr.length > MAX) arr.length = MAX;
+    all[id] = arr;
+    write(all);
+  }
+
+  function list(kind) {
+    var arr = read()[who()] || [];
+    if (!kind) return arr;
+    return arr.filter(function (e) { return e.k === kind; });
+  }
+
+  function sum(kind) {
+    return list(kind).reduce(function (n, e) { return n + e.d; }, 0);
+  }
+
+  function clear() {
+    var all = read();
+    delete all[who()];
+    write(all);
+  }
+
+  return { push: push, list: list, sum: sum, clear: clear, who: who, KEY: KEY };
+})(window);
+
+</script>
 <script data-from="../shared/payout.js">
 /* ==========================================================================
  * 见微 · 积分结算
@@ -2745,6 +2967,13 @@ window.Payout = (function () {
       sess.points = (sess.points || 0) + pts;
       sess.resolvedCnt = (sess.resolvedCnt || 0) + 1;
       write(AUTH_KEY, sess);
+
+      // 只给"本人在这台设备上"的情况记流水：别人的单子后台办结，
+      // 这台机器上根本没有他的余额，记了反而对不上。
+      if (window.Ledger) {
+        window.Ledger.push('points', pts,
+          '工单 ' + key + ' 办结' + (kind === 'merged' ? '（合并单）' : ''), sess.points);
+      }
     }
 
     // ---- 工单本身 ----
@@ -2805,6 +3034,300 @@ window.Payout = (function () {
     statusOf: statusOf
   };
 })();
+
+</script>
+<script data-from="../shared/rewards.js">
+/* ==========================================================================
+   rewards.js — 积分去处
+   --------------------------------------------------------------------------
+   积分得有个去处，否则「+65 积分」只是一句空话。
+
+   这里只留两块，刻意做成互不重叠：
+     商城  想买什么买什么，价格标在明面上
+     抽奖  只出非卖品 —— 能直接买的东西不会出现在奖池里，
+           否则抽到"谢谢参与"的人会问"那我不如去买"
+
+   曾经还有第三块「宠物养成」，后来整个删掉了：
+   那是另一个游戏，和"上报—派单—办结"这条治理闭环没有因果关系，
+   挂在这里只会让评审觉得是硬凑留存手段。积分有两个出口已经够用，
+   而且这两个出口都能直接挂在上报这件事上讲清楚。
+
+   两块池子的商品 id 前缀不同（商城无前缀 / 奖池 lt-），
+   启动时 verify() 会跑一遍查重，重复了会在控制台报出来。
+   ========================================================================== */
+
+(function (global) {
+  'use strict';
+
+  var KEY = 'jw.rewards.v1';
+
+  /* ---------------------------------------------------------------------
+   * 商城货架
+   * 只卖两样：头像框、称号。都是挂在自己名字上的东西，
+   * 和「谁在替这条街操心」直接相关，不需要再编一套世界观。
+   * ------------------------------------------------------------------- */
+
+  var MALL = [
+    /* --- 头像框 --- */
+    { id: 'frame-leaf',  kind: 'frame', name: '青叶框',   cost: 120, icon: 'frame',
+      desc: '四角长出一圈细叶，安静的那种' },
+    { id: 'frame-lamp',  kind: 'frame', name: '路灯框',   cost: 240, icon: 'frame',
+      desc: '夜里会亮一下，白天看不出来' },
+    { id: 'frame-map',   kind: 'frame', name: '测绘框',   cost: 420, icon: 'frame',
+      desc: '带坐标刻度，给爱记位置的人' },
+
+    /* --- 称号 --- */
+    { id: 'title-street', kind: 'title', name: '见习巡街人', cost: 60,  icon: 'crown',
+      desc: '入门称号，名字后面挂个牌子' },
+    { id: 'title-night',  kind: 'title', name: '夜巡者',     cost: 180, icon: 'crown',
+      desc: '给常在晚上报修的人' },
+    { id: 'title-see',    kind: 'title', name: '见微知著',   cost: 520, icon: 'crown',
+      desc: '本站最高称号，需要攒一阵' }
+  ];
+
+  /* ---------------------------------------------------------------------
+   * 抽奖奖池
+   * 权重合计 100，抽一次 30 积分。
+   * 注意：这里出现的头像框 / 称号，商城一件都没有卖——这就是"抽"的意义。
+   * ------------------------------------------------------------------- */
+
+  var LOTTERY = [
+    { id: 'lt-points-50',  kind: 'points', value: 50,  name: '50 积分',      weight: 34 },
+    { id: 'lt-points-120', kind: 'points', value: 120, name: '120 积分',     weight: 9 },
+    { id: 'lt-frame-fire', kind: 'frame',  name: '流萤框',   weight: 5,  rare: true,
+      desc: '只此一池，商城不卖' },
+    { id: 'lt-title-watch', kind: 'title', name: '守夜人',   weight: 4,  rare: true,
+      desc: '抽到的，买不到' },
+    { id: 'lt-again',      kind: 'reroll', name: '再来一次',  weight: 18 },
+    { id: 'lt-empty',      kind: 'empty',  name: '谢谢参与',  weight: 30 }
+  ];
+
+  var DRAW_COST = 30;
+
+  /* ---------------------------------------------------------------------
+   * 存取
+   * ------------------------------------------------------------------- */
+
+  function read() {
+    try {
+      var raw = global.localStorage.getItem(KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+
+  function write(v) {
+    try { global.localStorage.setItem(KEY, JSON.stringify(v)); return true; }
+    catch (e) { return false; }
+  }
+
+  /** 每个账号一份，游客按设备 ID 分开 */
+  function whoami() {
+    var A = global.Auth;
+    var s = A && A.get ? A.get() : null;
+    if (s) return s.id;
+    return (A && A.deviceId) ? A.deviceId() : 'anon';
+  }
+
+  function blank() {
+    return { owned: [], title: null, frame: null, draws: 0, spent: 0 };
+  }
+
+  function get() {
+    var all = read();
+    var id = whoami();
+    if (!all[id]) { all[id] = blank(); write(all); }
+    var st = all[id];
+    // 老数据补字段，省得后面到处判空
+    if (!st.owned) st.owned = [];
+    if (typeof st.draws !== 'number') st.draws = 0;
+    if (typeof st.spent !== 'number') st.spent = 0;
+    // 宠物那一版留下的 pet 字段直接清掉，免得以后有人翻出来以为还在用
+    if (st.pet) delete st.pet;
+    return st;
+  }
+
+  function save(st) {
+    var all = read();
+    all[whoami()] = st;
+    write(all);
+    return st;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 积分（真正的账本在 Auth 的 session 上，这里只读改写回）
+   * ------------------------------------------------------------------- */
+
+  function points() {
+    var A = global.Auth;
+    var s = A && A.get ? A.get() : null;
+    return s ? (s.points || 0) : 0;
+  }
+
+  /**
+   * @param {number} n    正数加，负数减
+   * @param {string} why  写进流水的原因，例如「抽奖一次」
+   */
+  function addPoints(n, why) {
+    var A = global.Auth;
+    if (!A || !A.patch) return points();
+    // 扣分扣到底就停在 0，所以流水里要记实际变化量，不是名义值
+    var before = points();
+    var after = Math.max(0, before + n);
+    A.patch({ points: after });
+    if (global.Ledger && why && after !== before) {
+      global.Ledger.push('points', after - before, why, after);
+    }
+    return after;
+  }
+
+  function spend(n, why) {
+    if (points() < n) return false;
+    addPoints(-n, why);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 商城
+   * ------------------------------------------------------------------- */
+
+  function findItem(id) {
+    for (var i = 0; i < MALL.length; i++) if (MALL[i].id === id) return MALL[i];
+    for (var j = 0; j < LOTTERY.length; j++) if (LOTTERY[j].id === id) return LOTTERY[j];
+    return null;
+  }
+
+  function owns(id) {
+    return get().owned.indexOf(id) >= 0;
+  }
+
+  /** @returns {{ok:boolean, reason?:string, item?:object}} */
+  function buy(id) {
+    var item = findItem(id);
+    if (!item) return { ok: false, reason: '没有这件东西' };
+
+    if (owns(id)) return { ok: false, reason: '已经拥有了' };
+    if (points() < item.cost) {
+      return { ok: false, reason: '积分差 ' + (item.cost - points()) + ' 分' };
+    }
+
+    var st = get();
+    spend(item.cost, '兑换「' + item.name + '」');
+    st.spent += item.cost;
+
+    st.owned.push(id);
+    // 买了就顺手换上，不用再点一次"使用"
+    if (item.kind === 'frame') st.frame = id;
+    if (item.kind === 'title') st.title = id;
+    save(st);
+    return { ok: true, item: item };
+  }
+
+  function equip(id) {
+    var item = findItem(id);
+    var st = get();
+    if (!item || st.owned.indexOf(id) < 0) return false;
+    if (item.kind === 'frame') st.frame = st.frame === id ? null : id;
+    else if (item.kind === 'title') st.title = st.title === id ? null : id;
+    else return false;
+    save(st);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 抽奖
+   * ------------------------------------------------------------------- */
+
+  function roll(extra) {
+    var total = 0;
+    for (var i = 0; i < LOTTERY.length; i++) total += LOTTERY[i].weight;
+    var r = Math.random() * total;
+    for (var j = 0; j < LOTTERY.length; j++) {
+      r -= LOTTERY[j].weight;
+      if (r <= 0) return LOTTERY[j];
+    }
+    return LOTTERY[LOTTERY.length - 1];
+  }
+
+  /**
+   * 抽一次。
+   * @returns {{ok:boolean, reason?:string, prize?:object, points?:number}}
+   */
+  function draw() {
+    if (points() < DRAW_COST) {
+      return { ok: false, reason: '积分不足，还差 ' + (DRAW_COST - points()) + ' 分' };
+    }
+
+    var st = get();
+    spend(DRAW_COST, '抽奖一次');
+    st.draws += 1;
+
+    var prize = roll();
+    var result = { ok: true, prize: prize, points: points() };
+
+    if (prize.kind === 'points') {
+      addPoints(prize.value, '抽奖得 ' + prize.name);
+    } else if (prize.kind === 'frame' || prize.kind === 'title') {
+      if (st.owned.indexOf(prize.id) >= 0) {
+        // 抽到已拥有的，折算成积分，别让人白抽
+        prize = { id: 'lt-dup', kind: 'points', value: 60, name: '重复奖品折 60 积分' };
+        addPoints(60, '抽奖重复，折成积分');
+      } else {
+        st.owned.push(prize.id);
+      }
+    } else if (prize.kind === 'reroll') {
+      // 再来一次：直接退钱，等于这次免费
+      addPoints(DRAW_COST, '抽到「再来一次」，退回本次抽奖分');
+    }
+
+    save(st);
+    result.prize = prize;
+    result.points = points();
+    return result;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 自检：商城的和抽奖的不能重样
+   * ------------------------------------------------------------------- */
+
+  function verify() {
+    var seen = {};
+    var dup = [];
+    MALL.concat(LOTTERY).forEach(function (it) {
+      if (seen[it.id]) dup.push(it.id);
+      seen[it.id] = 1;
+    });
+
+    // 除了 id 不重，名字也不能重 —— 重名在界面上等于同一件东西
+    var names = {};
+    MALL.concat(LOTTERY).forEach(function (it) {
+      if (names[it.name]) dup.push('name:' + it.name);
+      names[it.name] = 1;
+    });
+
+    return { ok: dup.length === 0, dup: dup, mall: MALL.length, lottery: LOTTERY.length };
+  }
+
+  global.Rewards = {
+    MALL: MALL,
+    LOTTERY: LOTTERY,
+    DRAW_COST: DRAW_COST,
+
+    get: get,
+    save: save,
+    points: points,
+    addPoints: addPoints,
+    spend: spend,
+
+    findItem: findItem,
+    owns: owns,
+    buy: buy,
+    equip: equip,
+
+    draw: draw,
+
+    verify: verify
+  };
+})(window);
 
 </script>
 <script data-from="../shared/auth.js">
@@ -3043,6 +3566,10 @@ window.Auth = (function () {
     session.weight = Math.min(1.5, (session.weight || 1) + 0.02);
 
     persist();
+    if (window.Ledger) {
+      Ledger.push('credit', creditGain,
+        o.merged ? '有效上报（与别人合并同一处）' : '有效上报通过', session.credit);
+    }
     return { creditGain: creditGain, pointGain: 0, estPoints: estPoints, deferred: true };
   }
 
@@ -3058,6 +3585,10 @@ window.Auth = (function () {
     session.points = (session.points || 0) + pts;
     session.credit = Math.min(100, session.credit + 3);
     persist();
+    if (window.Ledger) {
+      Ledger.push('points', pts, '问题已解决', session.points);
+      Ledger.push('credit', 3, '问题已解决', session.credit);
+    }
   }
 
   /**
@@ -3072,6 +3603,11 @@ window.Auth = (function () {
     session.points = Math.max(0, (session.points || 0) - 20);
     session.weight = Math.max(0.3, +((session.weight || 1) * 0.82).toFixed(3));
     persist();
+    if (window.Ledger) {
+      var why = '被判定为无效上报' + (reason ? '：' + reason : '');
+      Ledger.push('credit', -5, why, session.credit);
+      Ledger.push('points', -20, why, session.points);
+    }
     return { credit: -5, points: -20, weight: session.weight, reason: reason || '' };
   }
 
@@ -3613,7 +4149,9 @@ window.Auth = (function () {
   var SYSTEM_PROMPT = [
     '你是「见微」系统的上报质检员。你的唯一任务：判断一条来自校园/乡村居民的公共设施问题上报，是否值得进入工单池。',
     '',
-    '你拿不到图片本身，但会收到一组图像统计指标。这些指标是真实测量值，请按物理意义理解：',
+    '你会随消息收到上报人拍的原图（若消息里没有图，说明这次只有统计指标，按指标推断）。',
+    '有图时以画面为准：先看图，再看文字。文字描述只作参考——很多人写不全，但照片不会撒谎。',
+    '同时会给出一组程序测量指标（同一张图算出来的），用来印证你的观察，不是让你复述数字：',
     '  sharpScore  0-100，清晰度（拉普拉斯方差归一化）。低于 30 基本是糊的。',
     '  brightness  0-1，平均亮度。低于 0.14 是黑图或夜间无光，高于 0.93 是过曝。',
     '  saturation  0-1，平均饱和度。',
@@ -3622,21 +4160,33 @@ window.Auth = (function () {
     '  dominant    主导色彩类型，取值 outdoor-green / sky-water / document-screen / flat-graphic / mixed。',
     '',
     '判定三条标准，任一不满足即判为不通过：',
-    '  1. 图像可用：不是糊图、黑图、过曝、截图、纯色图。',
-    '  2. 内容对题：从图像指标 + 用户描述看，画面里应当存在公共设施，而不是风景、人像、宠物、美食。',
-    '  3. 类型一致：用户描述的问题，与用户选择的分类必须是同一类。例如选了「照明路灯」，描述却写「水管漏水」，则不一致。',
+    '  1. 图像可用：能看清现场。糊到认不出、全黑、过曝、纯色图、屏幕截图、聊天记录，判不通过。',
+    '  2. 内容对题：画面里确实是一处公共设施或公共空间的问题（路面裂缝、井盖缺失、路灯不亮、水管漏水、垃圾堆积、护栏损坏、线缆外露、绿化缺损……）。',
+    '     若拍的是风景、人像、宠物、美食、室内私物，判不通过，reason 用 non-facility。',
+    '     不允许"猜"：画面里找不出问题时，宁可判不通过，也不要替用户编一个出来。',
+    '  3. 类型一致：画面中的问题，与用户选的类型必须是同一类。选「照明路灯」却拍的是水管漏水，判不通过，reason 用 mismatch。',
+    '     若两种解释都说得通（例如积水既可算给排水、也涉路面），按用户所选类型通过，并在 detail 里注明。',
     '',
     '同时给出：',
+    '  seen      40 字以内，只写画面上实际看到的东西和位置关系（例如「夜间路面正中一处积水，反光，旁边是路缘石」）。',
+    '            这一项用于核对是否真的看了图：不要写推断，不要写"可能""似乎"，不要复述用户描述。',
     '  severity  1-5 的紧急度整数。判断依据是「对人身安全的威胁程度」和「影响范围」，不是用户有多着急。',
     '            5 = 可能直接伤人的（井盖缺失、电线外露、护栏脱落）；',
     '            4 = 有安全隐患但不立即伤人；3 = 影响正常使用；2 = 影响体验；1 = 观感问题。',
     '  summary   20 字以内的问题摘要，动词开头，例如「路灯灯罩破损，夜间无照明」。',
     '  advice    30 字以内给管理端的处置建议，要具体到动作，例如「建议夜间带电检修，重点查线路接头」。',
     '',
+    '几条边界，别踩：',
+    '  - 画质以本地指标为准。只有你自己也看不清现场时才判 blur/overexposed；',
+    '    夜里路灯不亮、雨天积水这类本来就暗，别因为画面暗就驳回——那是它该有的样子。',
+    '  - 不认识的设施不要硬编，用「疑似」表述。',
+    '  - 严格按用户选的那一类判"像不像"，不要因为你觉得该归别的部门就驳回。',
+    '',
     '语气要求：拒绝时不要像机器在驳回。用「建议换一张」而不是「不符合要求」。',
     '',
     '严格只输出 JSON，不要 markdown 代码块，不要任何解释文字。字段：',
     '{',
+    '  "seen": "40 字内，画面上实际看到的东西",',
     '  "pass": true|false,',
     '  "reason": "blur"|"dark"|"overexposed"|"flat"|"non-facility"|"mismatch"|null,',
     '  "message": "给用户看的一句话，20 字内，温和",',
@@ -3647,16 +4197,35 @@ window.Auth = (function () {
     '}'
   ].join('\n');
 
-  function buildUserPrompt(ctx) {
+  /**
+   * 这张图能不能直接喂给模型。
+   * 只认位图：演示用的样例图是 SVG 插画，模型会正确判定"这不是照片"，
+   * 反而把演示流程卡死；所以样例图一律走指标 + 本地规则。
+   */
+  function isRasterImage(src) {
+    if (!src || typeof src !== 'string') return false;
+    if (/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(src)) {
+      // 48 MiB 是上游上限，本地代理也有闸，8 MiB 以上直接不传图，免得整条请求失败
+      return src.length <= 8 * 1024 * 1024;
+    }
+    return /^https?:\/\/\S+\.(jpe?g|png|webp|gif)(\?\S*)?$/i.test(src);
+  }
+
+  function buildUserPrompt(ctx, opts) {
+    var o = opts || {};
     var m = ctx.metrics || {};
     var typeLabel = global.Domain ? Domain.type(ctx.type).label : ctx.type;
     var lines = [
+      o.hasImage
+        ? '【图片】消息里附了原图一张，请直接看画面。'
+        : '【图片】本条没有原图，只能依据下面的指标推断，请保守判断。',
+      '',
       '【上报内容】',
       '问题类型：' + typeLabel,
       '用户描述：' + (ctx.desc ? '「' + ctx.desc + '」' : '（未填写）'),
       '上报地点：' + (ctx.address || '未知'),
       '',
-      '【图像指标（真实测量）】',
+      '【图像指标（同一张图的程序测量，可交叉印证）】',
       '清晰度 sharpScore：' + (m.sharpScore != null ? m.sharpScore : '未知'),
       '亮度 brightness：' + (m.brightness != null ? m.brightness : '未知'),
       '饱和度 saturation：' + (m.saturation != null ? m.saturation : '未知'),
@@ -3676,15 +4245,29 @@ window.Auth = (function () {
   }
 
   function judgeByDeepSeek(ctx, cfg) {
+    var hasImage = isRasterImage(ctx.image);
+    var prompt = buildUserPrompt(ctx, { hasImage: hasImage });
+
     var body = {
-      model: cfg.model || 'deepseek-chat',
+      model: cfg.model || 'deepseek-flash',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(ctx) }
+        {
+          role: 'user',
+          content: hasImage
+            ? [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: ctx.image, detail: 'high' } }
+              ]
+            : prompt
+        }
       ],
       temperature: 0.2,
-      max_tokens: 500,
-      response_format: { type: 'json_object' }
+      max_tokens: 600,
+      response_format: { type: 'json_object' },
+      // 判定是短任务：开思维链只会把等待从 2 秒拉到 10 秒、还多花钱。
+      // 约束力交给 prompt 里的字段定义。
+      thinking: { type: 'disabled' }
     };
 
     var url = (cfg.endpoint || '').replace(/\/+$/, '') + '/chat/completions';
@@ -3715,6 +4298,9 @@ window.Auth = (function () {
           severity: clampSeverity(parsed.severity),
           summary: parsed.summary || '',
           advice: parsed.advice || '',
+          // 模型自述"看到了什么"，用来核对它是否真把图看进去了
+          seen: parsed.seen || '',
+          vision: hasImage,
           source: 'deepseek',
           latency: Date.now() - t0,
           raw: raw
@@ -3767,7 +4353,7 @@ window.Auth = (function () {
       timeout: opts.timeout || 12000
     };
 
-    var status = { mode: 'rules', online: false, lastError: '', checkedAt: 0 };
+    var status = { mode: 'rules', online: false, vision: false, lastError: '', checkedAt: 0 };
 
     /** 探测代理是否活着。活着就用真模型，否则回落到本地规则。 */
     function probe() {
@@ -3788,6 +4374,7 @@ window.Auth = (function () {
           status.mode = status.online ? 'deepseek' : 'rules';
           status.model = (j && j.model) || cfg.model;
           status.hasKey = !!(j && j.hasKey);
+          status.vision = !!(j && j.vision);
           status.lastError = '';
           status.checkedAt = Date.now();
           return status;
@@ -3822,6 +4409,9 @@ window.Auth = (function () {
             message: vision.message,
             severity: 0,
             source: 'rules',
+            seen: '',
+            sawImage: false,
+            metrics: metrics,
             latency: Date.now() - t0
           });
         }
@@ -3845,22 +4435,23 @@ window.Auth = (function () {
           var gates = [vision, sem];
           var severity = sem.severity || estimateSeverity(ctx, metrics);
 
-          /* 一条重要的边界：模型看不到图，只能看到统计量。
-             所以它没有资格否决"画质"——那是本地指标该管的事，
-             而且是确定性的。模型如果拿一堆数字推断"这图太平淡"，
-             就会把夜里的路灯实拍全部毙掉，而路灯问题恰好都发生在夜里。
-             这里把视觉类理由降级成"建议"，只保留语义类（类型错配）的否决权。 */
+          /* 否决权怎么分，取决于模型到底看到了什么。
+             —— 有图（vision=true）：模型手里是原始画面，是这道闸门里最有资格说话的一方，
+                它的判断直接采纳。否则就等于"让它看，又不信它"。
+             —— 没图（样例插画、或者关闭了视觉）：它只是拿几个统计数字在猜。
+                拿数字猜"这图太平淡"，会把夜里的路灯实拍全部毙掉，
+                而路灯问题恰好都发生在夜里。这种情况一律降级成建议。 */
           var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
           var soft = false;
           if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
-            soft = true;
+            soft = !sem.vision;
           }
 
-          /* 同理，语义否决也要有本地规则背书。
-             模型的判断会飘：同一段"路面积水"，它可能算给排水也可能算道路破损。
-             而 domain.js 里的 also 兼容表是人工校过的领域知识。
-             所以规则是：模型 + 本地规则一致才拦，只有模型反对就降级成温馨提示。 */
-          if (!soft && sem.pass === false && sem.reason === 'mismatch' && sem.source === 'deepseek') {
+          /* 类型错配在有图时同理。没图时还要本地规则背书：
+             domain.js 里的 also 兼容表是人工校过的领域知识，
+             同一段"路面积水"，模型可能算给排水，也可能算道路破损。 */
+          if (!soft && sem.pass === false && sem.reason === 'mismatch'
+              && sem.source === 'deepseek' && !sem.vision) {
             var localSem = gateSemanticRules(local);
             if (localSem.pass) soft = true;
           }
@@ -3870,13 +4461,19 @@ window.Auth = (function () {
             gates: gates,
             reason: soft ? null : sem.reason,
             message: sem.message,
-            detail: soft ? '模型仅凭统计量认为画质偏弱，本地指标判定通过，已按通过处理' : sem.detail,
+            detail: soft
+              ? '模型没拿到原图，只凭统计量认为画质偏弱；本地指标判定通过，已按通过处理'
+              : sem.detail,
             softHint: soft ? sem.message : null,
             suggestType: sem.suggestType,
             summary: sem.summary || autoSummary(ctx),
             advice: sem.advice || autoAdvice(ctx),
             severity: severity,
             source: sem.source || 'rules',
+            // 模型自述的"看到了什么" —— 后台抽屉里展示，证明这次是真看了图
+            seen: sem.seen || '',
+            sawImage: !!sem.vision,
+            metrics: metrics,
             degraded: !!sem.degraded,
             latency: Date.now() - t0
           });
@@ -4549,6 +5146,8 @@ window.Auth = (function () {
     lat: null,
     located: false,
     tstatus: 'all',
+    rwTab: 'lottery',     // 积分乐园：lottery | mall
+    lgKind: 'points',     // 流水：points | credit
     tickets: [],          // 本会话提交的工单
     picked: null          // 地图上选中的点位
   };
@@ -4558,6 +5157,7 @@ window.Auth = (function () {
     report:  { t: '上报问题', s: '拍照 → 选类型 → 定位 → AI 判定' },
     tickets: { t: '我的工单', s: '凭编码随时查进度' },
     query:   { t: '查进度',   s: '不登录也能凭编码查询' },
+    rewards: { t: '积分乐园', s: '抽奖 · 商城 · 积分去处' },
     me:      { t: '我的',     s: '信用分 · 积分 · 账号权重' }
   };
 
@@ -4667,6 +5267,7 @@ window.Auth = (function () {
     }
     if (name === 'tickets') renderTickets();
     if (name === 'me') renderMe();
+    if (name === 'rewards') renderRewards();
     if (name === 'report') renderReportState();
     if (name === 'query') renderQuery($('#queryInput').value);
   }
@@ -5279,6 +5880,128 @@ window.Auth = (function () {
     }).sort(function (a, b) { return b.at - a.at; });
   }
 
+  /* ============================================================
+     积分乐园（桌面版）
+     ------------------------------------------------------------
+     和手机端共用 shared/rewards.js，奖池和货架只有一份定义。
+     桌面屏宽，列表横过来排：一行一件，价格和状态一眼能扫。
+     ============================================================ */
+
+  function renderRewards() {
+    const R = window.Rewards;
+    if (!R) { $('#rwBody').innerHTML = '<div class="empty">积分模块没加载</div>'; return; }
+
+    const pts = R.points();
+    $('#rwSub').textContent = '当前 ' + pts + ' 分 · 抽一次 ' + R.DRAW_COST + ' 分';
+    $$('#rwSeg .seg-btn').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.rw === state.rwTab);
+    });
+
+    if (state.rwTab === 'lottery') {
+      const total = R.LOTTERY.reduce(function (n, x) { return n + x.weight; }, 0);
+      const rows = R.LOTTERY.map(function (it) {
+        const pct = Math.round(it.weight / total * 100);
+        return '<div class="rw-row">' +
+                 '<div class="rw-name">' + UI.escapeHtml(it.name) +
+                   (it.rare ? '<span class="rw-tag">限定</span>' : '') + '</div>' +
+                 '<div class="rw-desc">' + UI.escapeHtml(it.desc || (it.kind === 'points' ? '直接进积分' : '—')) + '</div>' +
+                 '<div class="rw-pct">' + pct + '%</div>' +
+               '</div>';
+      }).join('');
+
+      $('#rwBody').innerHTML =
+        '<div class="rw-hero">' +
+          '<div>' +
+            '<div class="rw-hero-t">花 ' + R.DRAW_COST + ' 分抽一次</div>' +
+            '<div class="rw-hero-s">奖池里没有商城在卖的东西——抽到的都是买不着的</div>' +
+          '</div>' +
+          '<button class="btn btn--primary" id="btnDraw"' + (pts < R.DRAW_COST ? ' disabled' : '') + '>' +
+            '抽一次</button>' +
+        '</div>' +
+        '<div class="rw-rows">' + rows + '</div>' +
+        '<div class="rw-last" id="rwLast"></div>';
+
+      const btn = $('#btnDraw');
+      if (btn) btn.addEventListener('click', function () {
+        const r = R.draw();
+        if (!r.ok) { toast(r.reason, 'warn'); return; }
+        renderRewards();
+        renderMe();
+        const last = $('#rwLast');
+        if (last) last.innerHTML = '抽到：<b>' + UI.escapeHtml(r.prize.name) + '</b>　当前 ' + r.points + ' 分';
+        toast('抽到「' + r.prize.name + '」', 'ok');
+      });
+      return;
+    }
+
+    const st = R.get();
+    const kindLabel = { frame: '头像框', title: '称号' };
+    const groups = {};
+    R.MALL.forEach(function (it) { (groups[it.kind] || (groups[it.kind] = [])).push(it); });
+
+    $('#rwBody').innerHTML = Object.keys(groups).map(function (kind) {
+      return '<div class="rw-group">' +
+               '<div class="rw-group-h">' + (kindLabel[kind] || kind) + '</div>' +
+               groups[kind].map(function (it) {
+                 const owned = st.owned.indexOf(it.id) >= 0;
+                 const on = st.frame === it.id || st.title === it.id;
+                 const can = pts >= it.cost;
+                 return '<div class="rw-row">' +
+                          '<div class="rw-name">' + UI.escapeHtml(it.name) + '</div>' +
+                          '<div class="rw-desc">' + UI.escapeHtml(it.desc || '') + '</div>' +
+                          '<div class="rw-cost">' + it.cost + ' 分</div>' +
+                          '<button class="btn btn--sm' + (owned ? ' btn--ghost' : can ? ' btn--primary' : '') + '"' +
+                            ' data-buy="' + it.id + '"' + (!owned && !can ? ' disabled' : '') + '>' +
+                            (owned ? (on ? '已佩戴' : '佩戴') : '兑换') + '</button>' +
+                        '</div>';
+               }).join('') +
+             '</div>';
+    }).join('');
+
+    $$('[data-buy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const id = b.dataset.buy;
+        const item = R.findItem(id);
+        if (!item) return;
+        if (R.owns(id)) {
+          if (R.equip(id)) { renderRewards(); toast('已换上「' + item.name + '」', 'ok'); }
+          return;
+        }
+        const res = R.buy(id);
+        if (!res.ok) { toast(res.reason, 'warn'); return; }
+        renderRewards();
+        renderMe();
+        toast('已入手「' + item.name + '」', 'ok');
+      });
+    });
+  }
+
+  /* ---------------- 变动记录 ---------------- */
+
+  function renderLedger() {
+    const L = window.Ledger;
+    const box = $('#meLedger');
+    if (!box) return;
+    if (!L) { box.innerHTML = '<div class="card-s">流水模块没加载</div>'; return; }
+
+    const kind = state.lgKind || 'points';
+    const items = L.list(kind).slice(0, 12);
+    box.innerHTML = items.length
+      ? items.map(function (e) {
+          const up = e.d > 0;
+          return '<div class="lg-row">' +
+                   '<div class="lg-main">' +
+                     '<div class="lg-why">' + UI.escapeHtml(e.why || '变动') + '</div>' +
+                     '<div class="lg-time">' + fmtTime(e.at) +
+                       (e.after != null ? ' · 余 ' + e.after : '') + '</div>' +
+                   '</div>' +
+                   '<div class="lg-d ' + (up ? 'is-up' : 'is-down') + '">' +
+                     (up ? '+' : '') + e.d + '</div>' +
+                 '</div>';
+        }).join('')
+      : '<div class="card-s">还没有记录。有效上报会加信用分，后勤办结才加积分。</div>';
+  }
+
   function renderTickets() {
     const list = allTickets().filter(function (t) {
       return state.tstatus === 'all' || t.status === state.tstatus;
@@ -5411,6 +6134,7 @@ window.Auth = (function () {
         }).join('')
       : '<div class="card-s">还没有徽章，第一次有效上报就能拿到「初次出勤」</div>';
     hydrate($('#meBadges'));
+    renderLedger();
 
     $('#btnIdentity').textContent = guest ? '登录 / 切换账号' : '退出登录';
 
@@ -5551,6 +6275,21 @@ window.Auth = (function () {
      ============================================================ */
 
   function bind() {
+    // 积分乐园页签 / 流水页签：只绑一次，内容区每次重渲染
+    $$('#rwSeg .seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.rwTab = b.dataset.rw;
+        renderRewards();
+      });
+    });
+    $$('#lgSeg .seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.lgKind = b.dataset.lg;
+        $$('#lgSeg .seg-btn').forEach(function (x) { x.classList.toggle('is-on', x === b); });
+        renderLedger();
+      });
+    });
+
     $$('.rail-btn').forEach(function (b) {
       b.addEventListener('click', function () { go(b.dataset.view); });
     });

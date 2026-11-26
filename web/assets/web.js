@@ -40,6 +40,8 @@
     lat: null,
     located: false,
     tstatus: 'all',
+    rwTab: 'lottery',     // 积分乐园：lottery | mall
+    lgKind: 'points',     // 流水：points | credit
     tickets: [],          // 本会话提交的工单
     picked: null          // 地图上选中的点位
   };
@@ -49,6 +51,7 @@
     report:  { t: '上报问题', s: '拍照 → 选类型 → 定位 → AI 判定' },
     tickets: { t: '我的工单', s: '凭编码随时查进度' },
     query:   { t: '查进度',   s: '不登录也能凭编码查询' },
+    rewards: { t: '积分乐园', s: '抽奖 · 商城 · 积分去处' },
     me:      { t: '我的',     s: '信用分 · 积分 · 账号权重' }
   };
 
@@ -158,6 +161,7 @@
     }
     if (name === 'tickets') renderTickets();
     if (name === 'me') renderMe();
+    if (name === 'rewards') renderRewards();
     if (name === 'report') renderReportState();
     if (name === 'query') renderQuery($('#queryInput').value);
   }
@@ -770,6 +774,128 @@
     }).sort(function (a, b) { return b.at - a.at; });
   }
 
+  /* ============================================================
+     积分乐园（桌面版）
+     ------------------------------------------------------------
+     和手机端共用 shared/rewards.js，奖池和货架只有一份定义。
+     桌面屏宽，列表横过来排：一行一件，价格和状态一眼能扫。
+     ============================================================ */
+
+  function renderRewards() {
+    const R = window.Rewards;
+    if (!R) { $('#rwBody').innerHTML = '<div class="empty">积分模块没加载</div>'; return; }
+
+    const pts = R.points();
+    $('#rwSub').textContent = '当前 ' + pts + ' 分 · 抽一次 ' + R.DRAW_COST + ' 分';
+    $$('#rwSeg .seg-btn').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.rw === state.rwTab);
+    });
+
+    if (state.rwTab === 'lottery') {
+      const total = R.LOTTERY.reduce(function (n, x) { return n + x.weight; }, 0);
+      const rows = R.LOTTERY.map(function (it) {
+        const pct = Math.round(it.weight / total * 100);
+        return '<div class="rw-row">' +
+                 '<div class="rw-name">' + UI.escapeHtml(it.name) +
+                   (it.rare ? '<span class="rw-tag">限定</span>' : '') + '</div>' +
+                 '<div class="rw-desc">' + UI.escapeHtml(it.desc || (it.kind === 'points' ? '直接进积分' : '—')) + '</div>' +
+                 '<div class="rw-pct">' + pct + '%</div>' +
+               '</div>';
+      }).join('');
+
+      $('#rwBody').innerHTML =
+        '<div class="rw-hero">' +
+          '<div>' +
+            '<div class="rw-hero-t">花 ' + R.DRAW_COST + ' 分抽一次</div>' +
+            '<div class="rw-hero-s">奖池里没有商城在卖的东西——抽到的都是买不着的</div>' +
+          '</div>' +
+          '<button class="btn btn--primary" id="btnDraw"' + (pts < R.DRAW_COST ? ' disabled' : '') + '>' +
+            '抽一次</button>' +
+        '</div>' +
+        '<div class="rw-rows">' + rows + '</div>' +
+        '<div class="rw-last" id="rwLast"></div>';
+
+      const btn = $('#btnDraw');
+      if (btn) btn.addEventListener('click', function () {
+        const r = R.draw();
+        if (!r.ok) { toast(r.reason, 'warn'); return; }
+        renderRewards();
+        renderMe();
+        const last = $('#rwLast');
+        if (last) last.innerHTML = '抽到：<b>' + UI.escapeHtml(r.prize.name) + '</b>　当前 ' + r.points + ' 分';
+        toast('抽到「' + r.prize.name + '」', 'ok');
+      });
+      return;
+    }
+
+    const st = R.get();
+    const kindLabel = { frame: '头像框', title: '称号' };
+    const groups = {};
+    R.MALL.forEach(function (it) { (groups[it.kind] || (groups[it.kind] = [])).push(it); });
+
+    $('#rwBody').innerHTML = Object.keys(groups).map(function (kind) {
+      return '<div class="rw-group">' +
+               '<div class="rw-group-h">' + (kindLabel[kind] || kind) + '</div>' +
+               groups[kind].map(function (it) {
+                 const owned = st.owned.indexOf(it.id) >= 0;
+                 const on = st.frame === it.id || st.title === it.id;
+                 const can = pts >= it.cost;
+                 return '<div class="rw-row">' +
+                          '<div class="rw-name">' + UI.escapeHtml(it.name) + '</div>' +
+                          '<div class="rw-desc">' + UI.escapeHtml(it.desc || '') + '</div>' +
+                          '<div class="rw-cost">' + it.cost + ' 分</div>' +
+                          '<button class="btn btn--sm' + (owned ? ' btn--ghost' : can ? ' btn--primary' : '') + '"' +
+                            ' data-buy="' + it.id + '"' + (!owned && !can ? ' disabled' : '') + '>' +
+                            (owned ? (on ? '已佩戴' : '佩戴') : '兑换') + '</button>' +
+                        '</div>';
+               }).join('') +
+             '</div>';
+    }).join('');
+
+    $$('[data-buy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const id = b.dataset.buy;
+        const item = R.findItem(id);
+        if (!item) return;
+        if (R.owns(id)) {
+          if (R.equip(id)) { renderRewards(); toast('已换上「' + item.name + '」', 'ok'); }
+          return;
+        }
+        const res = R.buy(id);
+        if (!res.ok) { toast(res.reason, 'warn'); return; }
+        renderRewards();
+        renderMe();
+        toast('已入手「' + item.name + '」', 'ok');
+      });
+    });
+  }
+
+  /* ---------------- 变动记录 ---------------- */
+
+  function renderLedger() {
+    const L = window.Ledger;
+    const box = $('#meLedger');
+    if (!box) return;
+    if (!L) { box.innerHTML = '<div class="card-s">流水模块没加载</div>'; return; }
+
+    const kind = state.lgKind || 'points';
+    const items = L.list(kind).slice(0, 12);
+    box.innerHTML = items.length
+      ? items.map(function (e) {
+          const up = e.d > 0;
+          return '<div class="lg-row">' +
+                   '<div class="lg-main">' +
+                     '<div class="lg-why">' + UI.escapeHtml(e.why || '变动') + '</div>' +
+                     '<div class="lg-time">' + fmtTime(e.at) +
+                       (e.after != null ? ' · 余 ' + e.after : '') + '</div>' +
+                   '</div>' +
+                   '<div class="lg-d ' + (up ? 'is-up' : 'is-down') + '">' +
+                     (up ? '+' : '') + e.d + '</div>' +
+                 '</div>';
+        }).join('')
+      : '<div class="card-s">还没有记录。有效上报会加信用分，后勤办结才加积分。</div>';
+  }
+
   function renderTickets() {
     const list = allTickets().filter(function (t) {
       return state.tstatus === 'all' || t.status === state.tstatus;
@@ -902,6 +1028,7 @@
         }).join('')
       : '<div class="card-s">还没有徽章，第一次有效上报就能拿到「初次出勤」</div>';
     hydrate($('#meBadges'));
+    renderLedger();
 
     $('#btnIdentity').textContent = guest ? '登录 / 切换账号' : '退出登录';
 
@@ -1042,6 +1169,21 @@
      ============================================================ */
 
   function bind() {
+    // 积分乐园页签 / 流水页签：只绑一次，内容区每次重渲染
+    $$('#rwSeg .seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.rwTab = b.dataset.rw;
+        renderRewards();
+      });
+    });
+    $$('#lgSeg .seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.lgKind = b.dataset.lg;
+        $$('#lgSeg .seg-btn').forEach(function (x) { x.classList.toggle('is-on', x === b); });
+        renderLedger();
+      });
+    });
+
     $$('.rail-btn').forEach(function (b) {
       b.addEventListener('click', function () { go(b.dataset.view); });
     });

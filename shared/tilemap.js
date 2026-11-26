@@ -370,8 +370,10 @@
     function placeMe() {
       if (!meEl || !state.me) return;
       var p = toPixel(state.me[0], state.me[1]);
-      meEl.style.left = p.x + 'px';
-      meEl.style.top = p.y + 'px';
+      // 用 transform 而不是 left/top：拖动时每帧都改 left/top 会触发布局，
+      // 光圈那圈半透明的脉冲动画就会糊出一串残影。
+      // transform 走合成层，跟瓦片一起由 GPU 平移，不会留下痕迹。
+      meEl.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
       var pad = 120;
       var on = p.x > -pad && p.x < state.width + pad &&
                p.y > -pad && p.y < state.height + pad;

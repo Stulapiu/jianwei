@@ -233,6 +233,10 @@ window.Auth = (function () {
     session.weight = Math.min(1.5, (session.weight || 1) + 0.02);
 
     persist();
+    if (window.Ledger) {
+      Ledger.push('credit', creditGain,
+        o.merged ? '有效上报（与别人合并同一处）' : '有效上报通过', session.credit);
+    }
     return { creditGain: creditGain, pointGain: 0, estPoints: estPoints, deferred: true };
   }
 
@@ -248,6 +252,10 @@ window.Auth = (function () {
     session.points = (session.points || 0) + pts;
     session.credit = Math.min(100, session.credit + 3);
     persist();
+    if (window.Ledger) {
+      Ledger.push('points', pts, '问题已解决', session.points);
+      Ledger.push('credit', 3, '问题已解决', session.credit);
+    }
   }
 
   /**
@@ -262,6 +270,11 @@ window.Auth = (function () {
     session.points = Math.max(0, (session.points || 0) - 20);
     session.weight = Math.max(0.3, +((session.weight || 1) * 0.82).toFixed(3));
     persist();
+    if (window.Ledger) {
+      var why = '被判定为无效上报' + (reason ? '：' + reason : '');
+      Ledger.push('credit', -5, why, session.credit);
+      Ledger.push('points', -20, why, session.points);
+    }
     return { credit: -5, points: -20, weight: session.weight, reason: reason || '' };
   }
 

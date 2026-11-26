@@ -185,8 +185,13 @@
 }
 .tm-me {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 0;
   height: 0;
+  /* 位置靠 translate3d 写入（见 tilemap.js 的 placeMe），
+     这里提成独立合成层，拖动时不再逐帧重排 */
+  will-change: transform;
 }
 .tm-me-ring {
   position: absolute;
@@ -197,6 +202,9 @@
   border-radius: 50%;
   background: rgba(30, 123, 214, .26);
   animation: tmMePulse 2.6s ease-out infinite;
+  /* 只动 transform/opacity；backface 关掉能少一层缓存副本 */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .tm-me-dot {
   position: absolute;
@@ -1674,6 +1682,10 @@ table.orders tbody tr:last-child td { border-bottom: none; }
   50%      { box-shadow: 0 0 0 6px rgba(217, 72, 63, .04); }
 }
 
+/* display:flex 会盖掉 [hidden] 的 display:none，必须显式补一条，
+   否则提示条常驻，谁看都以为后台永远在"现场模式" */
+.live-bar[hidden] { display: none; }
+
 .live-bar {
   display: flex;
   align-items: center;
@@ -1817,8 +1829,216 @@ table.orders tbody tr:last-child td { border-bottom: none; }
 .dr-pay-btn:hover { background: var(--brand-deep); border-color: var(--brand-deep); }
 .dr-pay-btn:active { transform: translateY(1px); }
 
+/* 模型自述的观察：一行淡底，目的是让人一眼判断"它到底看没看图" */
+.dr-seen {
+  margin-top: 9px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: rgba(43, 122, 120, .06);
+  border-left: 2px solid var(--brand);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.dr-seen-k {
+  display: inline-block;
+  margin-right: 7px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--brand-deep);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+/* ============================================================
+   窄屏（≤ 820px）：后台按手机重排一遍
+   ------------------------------------------------------------
+   之前的问题很具体：8 列表格被压进 390px，每格只剩一两个字，
+   读起来像竖排；侧栏还固定占掉四分之一屏，正文更没地方。
+   处理办法不是"缩字号"，而是换布局：
+     · 侧栏 → 顶部横向图标条
+     · 表格 → 只留 4 个关键列（照片 / 工单 · 位置 / 优先级 / 状态操作）
+     · 卡片 → 单列堆叠
+   ============================================================ */
+@media (max-width: 820px) {
+  .app { display: block; }
+
+  /* ---- 侧栏变顶栏 ---- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .7);
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar::-webkit-scrollbar { display: none; }
+  .brand { padding: 0 6px 0 0; gap: 8px; }
+  .brand-name { font-size: 14px; }
+  .brand-sub { display: none; }
+  .side-brief, .side-foot, .collapse-btn { display: none; }
+
+  .nav {
+    flex-direction: row;
+    flex: none;
+    gap: 2px;
+    padding: 0;
+    margin: 0;
+  }
+  .nav-item {
+    width: auto;
+    height: 36px;
+    padding: 0 11px;
+    gap: 0;
+  }
+  .nav-item .nav-label { display: none; }
+  .nav-item .nav-badge { display: none; }
+  .nav-item.active .nav-ico { opacity: 1; }
+
+  /* ---- 顶栏 ---- */
+  main { width: 100%; }
+  .topbar {
+    position: static;
+    height: auto;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .topbar-left { width: 100%; }
+  .topbar h1, #viewTitle { font-size: 17px; }
+  .topbar-right {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-start;
+  }
+  .search-wrap { width: 100%; }
+  .search { width: 100%; }
+
+  /* ---- 内容区 ---- */
+  .view { padding: 12px 12px 48px; }
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .metric { padding: 12px 12px 11px; border-radius: 14px; }
+  .metric-value { font-size: 22px; }
+  .metric-label { font-size: 11.5px; }
+  .metric-delta { font-size: 10.5px; }
+
+  .grid.g-heat, .grid.g-2-1 { grid-template-columns: 1fr; gap: 10px; }
+  .card { padding: 12px; border-radius: 14px; }
+  .card-head { flex-wrap: wrap; gap: 8px; }
+  .card-sub { display: none; }
+  .heat-map { height: 240px; }
+
+  /* 筛选条横向滑动，别挤成两行 */
+  .seg, .filters, .toolbar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+  .seg::-webkit-scrollbar, .filters::-webkit-scrollbar { display: none; }
+  .seg-btn, .chip { flex: none; }
+
+  /* ---- 工单表：只留 4 列 ---- */
+  .table-card { padding: 0; overflow: hidden; }
+  .table-scroll { overflow-x: auto; }
+  .orders { width: 100%; }
+  .orders th, .orders td { padding: 9px 8px; font-size: 12px; }
+  .orders th { width: auto !important; white-space: nowrap; }
+  .orders th:nth-child(3), .orders td:nth-child(3),
+  .orders th:nth-child(4), .orders td:nth-child(4),
+  .orders th:nth-child(6), .orders td:nth-child(6) { display: none; }
+  .orders th:nth-child(1), .orders td:nth-child(1) { width: 46px; }
+  .orders td:nth-child(2) { max-width: 160px; }
+  .orders td:nth-child(2) .cell-main {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: normal;
+    line-height: 1.45;
+  }
+  .orders td:nth-child(2) .cell-sub {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .orders .mono { font-size: 10.5px; }
+
+  /* 抽屉铺满 */
+  .drawer { width: 100%; max-width: none; }
+  .live-bar { flex-wrap: wrap; gap: 6px; margin: 0 12px 10px; }
+  .dr-metrics { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 窄屏工单表：固定列宽 + 只留关键信息。
+   不做 table-layout:fixed 的话，浏览器会按内容宽度去分，
+   地址一长就把其它列挤没，右侧操作按钮直接被裁掉。 */
+@media (max-width: 820px) {
+  .toolbar-meta {
+    flex-wrap: wrap;
+    gap: 3px 8px;
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+  .toolbar-meta .hint-inline,
+  .toolbar-meta .dot-sep,
+  .toolbar-meta .spacer { display: none; }
+
+  .orders { table-layout: fixed; }
+  .orders td:nth-child(1) { width: 40px; }
+  .orders td:nth-child(5) { width: 48px; }
+  .orders td:nth-child(7) { width: 60px; }
+  .orders td:nth-child(8) { width: 92px; }
+  /* 星级在这么窄的列里只会占位，P0/P1 已经说明问题 */
+  .orders .pri > *:not(.pri-badge) { display: none; }
+  .orders .status { font-size: 10.5px; padding: 2px 6px; }
+
+  .orders .ops { flex-wrap: wrap; gap: 4px; }
+  .orders .op { height: 24px; padding: 0 6px; font-size: 10.5px; border-radius: 6px; }
+}
+
+/* ---------------- 时效提示 ----------------
+   一列数字太抽象，写"已超时 6 小时"才知道要先去处理哪一单。
+   三档：正常（灰）/ 快到点（黄）/ 已超时（红）。 */
+.cell-sla {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.cell-sla.is-soon { color: var(--warn); font-weight: 600; }
+.cell-sla.is-late { color: var(--danger); font-weight: 600; }
+.cell-sla.is-ok { color: var(--text-3); }
+
+.sla-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--line-2);
+  color: var(--text-2);
+}
+.sla-chip.is-soon { background: rgba(201, 123, 32, .12); color: var(--warn); }
+.sla-chip.is-late { background: rgba(192, 57, 43, .1); color: var(--danger); }
+.sla-chip.is-ok { background: rgba(46, 139, 98, .1); color: var(--ok); }
+.dr-dim { color: var(--text-3); font-size: 11px; }
+
 </style>
-<!-- 单文件构建 · 2026-11-24 07:14:56 · CSS×2 JS×4 -->
+<!-- 单文件构建 · 2026-11-26 12:43:23 · CSS×2 JS×4 -->
 </head>
 <body>
 
@@ -2569,8 +2789,10 @@ table.orders tbody tr:last-child td { border-bottom: none; }
     function placeMe() {
       if (!meEl || !state.me) return;
       var p = toPixel(state.me[0], state.me[1]);
-      meEl.style.left = p.x + 'px';
-      meEl.style.top = p.y + 'px';
+      // 用 transform 而不是 left/top：拖动时每帧都改 left/top 会触发布局，
+      // 光圈那圈半透明的脉冲动画就会糊出一串残影。
+      // transform 走合成层，跟瓦片一起由 GPU 平移，不会留下痕迹。
+      meEl.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
       var pad = 120;
       var on = p.x > -pad && p.x < state.width + pad &&
                p.y > -pad && p.y < state.height + pad;
@@ -3272,6 +3494,13 @@ window.Payout = (function () {
       sess.points = (sess.points || 0) + pts;
       sess.resolvedCnt = (sess.resolvedCnt || 0) + 1;
       write(AUTH_KEY, sess);
+
+      // 只给"本人在这台设备上"的情况记流水：别人的单子后台办结，
+      // 这台机器上根本没有他的余额，记了反而对不上。
+      if (window.Ledger) {
+        window.Ledger.push('points', pts,
+          '工单 ' + key + ' 办结' + (kind === 'merged' ? '（合并单）' : ''), sess.points);
+      }
     }
 
     // ---- 工单本身 ----
@@ -4057,6 +4286,10 @@ window.Payout = (function () {
         '<td>' +
           '<div class="cell-main">' + escapeHtml(o.address) + '</div>' +
           '<div class="cell-sub"><span class="mono">' + o.orderNo + '</span> · ' + fmtAgo(o.createdAt) + '</div>' +
+          (function () {
+            var s2 = slaOf(o);
+            return '<div class="cell-sla ' + s2.tone + '">' + s2.text + '</div>';
+          })() +
         '</td>' +
         '<td>' +
           '<span class="chip" style="background:' + t.soft + ';color:' + t.color + '">' +
@@ -4554,9 +4787,52 @@ window.Payout = (function () {
    * 8. 详情抽屉
    * ==================================================================== */
 
+  /* ======================================================================
+   * 时效与同处历史
+   * ----------------------------------------------------------------------
+   * 后勤最关心的其实不是"有多少单"，而是"哪几单快到点了"。
+   * 所以每条工单都算一个剩余小时数：P0 4 小时、P1 8 小时、P2 24 小时，
+   * 超了标红，剩不到 2 小时标黄。
+   *
+   * 另一件事是"这条街这个月第几次了"。同一位置反复报同类问题，
+   * 说明上次只是补了一下，没有根治——这比单条工单更值得往上报。
+   * ==================================================================== */
+
+  var SLA_HOURS = { P0: 4, P1: 8, P2: 24, P3: 48, P4: 72 };
+  var HOUR_MS = 3600 * 1000;
+
+  function slaOf(o) {
+    var pri = D.priorityOf(o.severity).id;
+    var limitH = SLA_HOURS[pri] || 24;
+    if (o.status === 'resolved') {
+      return { text: '已办结', tone: 'is-ok', limitH: limitH };
+    }
+    var left = o.createdAt + limitH * HOUR_MS - Date.now();
+    var h = Math.max(1, Math.round(Math.abs(left) / HOUR_MS));
+    if (left < 0) return { text: '已超时 ' + h + ' 小时', tone: 'is-late', limitH: limitH };
+    if (left < 2 * HOUR_MS) return { text: '剩 ' + h + ' 小时到期', tone: 'is-soon', limitH: limitH };
+    return { text: '剩 ' + h + ' 小时', tone: '', limitH: limitH };
+  }
+
+  /** 近 30 天、同一类型、300 米内的其它工单数 */
+  function repeatOf(o) {
+    if (!o || typeof o.lat !== 'number') return 0;
+    var n = 0;
+    ORDERS.forEach(function (x) {
+      if (!x || x.id === o.id || x.type !== o.type) return;
+      if (Date.now() - x.createdAt > 30 * 24 * HOUR_MS) return;
+      var dLat = Math.abs(x.lat - o.lat) * 111000;
+      var dLng = Math.abs(x.lng - o.lng) * 91000;   // 郑州纬度下经度 1° ≈ 91km
+      if (Math.sqrt(dLat * dLat + dLng * dLng) < 300) n++;
+    });
+    return n;
+  }
+
   function openDrawer(o) {
     var t = D.type(o.type);
     var pri = D.priorityOf(o.severity);
+    var sla = slaOf(o);
+    var rep = repeatOf(o);
 
     $('#drawerTitle').textContent = o.orderNo;
     $('#drawerSub').textContent = o.address + ' · ' + fmtAgo(o.createdAt) + '上报';
@@ -4577,6 +4853,14 @@ window.Payout = (function () {
         o.lat.toFixed(5) + ', ' + o.lng.toFixed(5) + '</span></div>' +
       '<div class="dr-row"><span class="dr-k">状态</span><span class="dr-v">' +
         ({ pending: '待处理', processing: '处理中', resolved: '已完成' })[o.status] + '</span></div>' +
+      '<div class="dr-row"><span class="dr-k">时效</span><span class="dr-v">' +
+        '<span class="sla-chip ' + sla.tone + '">' + sla.text + '</span>' +
+        '<span class="dr-dim">　' + pri.id + ' 要求 ' + sla.limitH + ' 小时内响应</span></span></div>' +
+      (rep
+        ? '<div class="dr-row"><span class="dr-k">同处历史</span><span class="dr-v">' +
+          '近 30 天同一位置已有 <b>' + rep + '</b> 条同类工单' +
+          (rep >= 2 ? '，建议这次一并根治' : '') + '</span></div>'
+        : '') +
 
       '<div class="dr-section">' +
         '<div class="dr-section-title">AI 诊断 · 仅供参考</div>' +
@@ -4933,7 +5217,9 @@ window.Payout = (function () {
   function liveSection(o) {
     var a = o.analysis || {};
     var m = a.metrics || {};
-    var src = a.source === 'deepseek' ? 'DeepSeek 语义判定' : '本地规则引擎';
+    var src = a.source === 'deepseek'
+      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
+      : '本地规则引擎';
 
     var LABEL = {
       sharpness: '清晰度',
@@ -4958,6 +5244,10 @@ window.Payout = (function () {
       '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
         '<span class="dr-v">' + src +
         (a.soft ? '（画质仅提示）' : '') + '</span></div>' +
+      (a.seen
+        ? '<div class="dr-seen"><span class="dr-seen-k">模型看到的</span>' +
+          escapeHtml(a.seen) + '</div>'
+        : '') +
       (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
       '<div class="dr-note" style="margin-top:8px">' +
         (a.pass

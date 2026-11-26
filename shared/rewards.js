@@ -124,16 +124,26 @@
     return s ? (s.points || 0) : 0;
   }
 
-  function addPoints(n) {
+  /**
+   * @param {number} n    正数加，负数减
+   * @param {string} why  写进流水的原因，例如「抽奖一次」
+   */
+  function addPoints(n, why) {
     var A = global.Auth;
     if (!A || !A.patch) return points();
-    A.patch({ points: Math.max(0, points() + n) });
-    return points();
+    // 扣分扣到底就停在 0，所以流水里要记实际变化量，不是名义值
+    var before = points();
+    var after = Math.max(0, before + n);
+    A.patch({ points: after });
+    if (global.Ledger && why && after !== before) {
+      global.Ledger.push('points', after - before, why, after);
+    }
+    return after;
   }
 
-  function spend(n) {
+  function spend(n, why) {
     if (points() < n) return false;
-    addPoints(-n);
+    addPoints(-n, why);
     return true;
   }
 
@@ -162,7 +172,7 @@
     }
 
     var st = get();
-    spend(item.cost);
+    spend(item.cost, '兑换「' + item.name + '」');
     st.spent += item.cost;
 
     st.owned.push(id);
@@ -209,25 +219,25 @@
     }
 
     var st = get();
-    spend(DRAW_COST);
+    spend(DRAW_COST, '抽奖一次');
     st.draws += 1;
 
     var prize = roll();
     var result = { ok: true, prize: prize, points: points() };
 
     if (prize.kind === 'points') {
-      addPoints(prize.value);
+      addPoints(prize.value, '抽奖得 ' + prize.name);
     } else if (prize.kind === 'frame' || prize.kind === 'title') {
       if (st.owned.indexOf(prize.id) >= 0) {
         // 抽到已拥有的，折算成积分，别让人白抽
         prize = { id: 'lt-dup', kind: 'points', value: 60, name: '重复奖品折 60 积分' };
-        addPoints(60);
+        addPoints(60, '抽奖重复，折成积分');
       } else {
         st.owned.push(prize.id);
       }
     } else if (prize.kind === 'reroll') {
       // 再来一次：直接退钱，等于这次免费
-      addPoints(DRAW_COST);
+      addPoints(DRAW_COST, '抽到「再来一次」，退回本次抽奖分');
     }
 
     save(st);

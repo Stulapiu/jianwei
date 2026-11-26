@@ -1022,7 +1022,8 @@
         const badge = $('#aiModeBadge');
         if (badge) {
           badge.textContent = st.mode === 'deepseek'
-            ? 'DeepSeek · ' + (st.model || 'deepseek-chat')
+            ? (st.vision ? 'DeepSeek 看图 · ' + (st.model || 'deepseek-flash')
+                         : 'DeepSeek 文本 · ' + (st.model || 'deepseek-flash'))
             : '本地规则引擎';
           badge.dataset.mode = st.mode;
         }
@@ -1126,6 +1127,9 @@
         summary: v.summary || '',
         advice: v.advice || '',
         soft: !!v.realPhotoSoft,
+        // 模型自述"看到了什么" —— 后台要能核对它是不是真看了图
+        seen: v.seen || '',
+        sawImage: !!v.sawImage,
         metrics: v.metrics || null,
         severity: finalSeverity,
         latency: v.latency || 0
@@ -1591,7 +1595,8 @@
           '</span>'
         : '';
 
-      return '<div class="report-item reveal" style="--d:' + (i + 1) + '">' +
+      return '<div class="report-item reveal" style="--d:' + (i + 1) + '"' +
+               (r.code ? ' data-code="' + UI.escapeHtml(r.code) + '"' : '') + '>' +
                '<div class="report-thumb">' +
                  (r.photoSrc
                    ? '<img src="' + r.photoSrc + '" alt="现场照片">'
@@ -1612,6 +1617,138 @@
                '</div>' +
              '</div>';
     }).join('');
+  }
+
+  /* ============================================================
+     上报详情：点一条，看全过程
+     ------------------------------------------------------------
+     列表只回答"报了没、解决没"，回答不了"卡在哪一步、谁在办"。
+     用户第二次点进来，想知道的就是后者。
+     ============================================================ */
+
+  function openReportDetail(code) {
+    if (!code) return;
+    const tk = A.findTicket(code) || null;
+    const local = allMyReports().filter(function (r) { return r.code === code; })[0] || {};
+    const t = tk || {};
+
+    const stKey = t.status || local.status || 'pending';
+    const st = D.STATUS[stKey] || D.STATUS.pending;
+    // 状态色只有前景色，浅底在这里补一份，不然行内只有一行裸字
+    const stBg = { pending: 'var(--danger-bg)', processing: 'var(--warn-bg)',
+                   review: 'var(--review-bg)', resolved: 'var(--ok-bg)',
+                   rejected: 'var(--line-2)' }[stKey] || 'var(--line-2)';
+    const typeKey = t.type || local.type;
+    const typeLabel = D.TYPE_LABEL[typeKey] || '—';
+    const dept = t.dept || (window.Domain && Domain.deptFor(typeKey).name) || '待分派';
+    const sev = t.severity || local.severity || 1;
+    const paid = !!(t.reward && t.reward.paid);
+    const pts = paid ? t.reward.points : (t.estPoints || local.estPoints || 0);
+
+    // 实拍图存的是 dataURL；老数据只有 kind，回落到示意图
+    const photo = (t.photo && /^data:image\//.test(t.photo))
+      ? '<img src="' + t.photo + '" alt="现场照片">'
+      : (local.photoSrc ? '<img src="' + local.photoSrc + '" alt="现场照片">' : D.photoSVG(local.photo || 'scenery'));
+
+    const timeline = (t.timeline || []);
+    const tlHTML = timeline.length
+      ? '<div class="tl">' + timeline.map(function (e, i) {
+          return '<div class="tl-row' + (i === 0 ? ' is-first' : '') +
+                   (e.tone === 'ok' ? ' is-ok' : '') + '">' +
+                   '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
+                   '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
+                 '</div>';
+        }).join('') + '</div>'
+      : '<div class="dsl-empty">还没有流转记录</div>';
+
+    const aiLine = (t.analysis && (t.analysis.seen || t.analysis.summary))
+      ? '<div class="dsl-note">' +
+          (t.analysis.seen ? '<b>AI 看到的：</b>' + UI.escapeHtml(t.analysis.seen) : '') +
+          (t.analysis.advice ? '<br><b>处置建议：</b>' + UI.escapeHtml(t.analysis.advice) : '') +
+        '</div>'
+      : '';
+
+    UI.sheet({
+      title: '上报详情',
+      sub: typeLabel + ' · ' + (t.addr || local.addr || '已记录坐标'),
+      body:
+        '<div class="dr-shot-mini">' + photo + '</div>' +
+        '<div class="dsl-status" style="color:' + st.color + ';background:' + stBg + '">' +
+          st.label +
+          (pts ? '<span class="dsl-pt">' + (paid ? '积分 +' + pts + ' 已到账' : '待发放 +' + pts) + '</span>' : '') +
+        '</div>' +
+        '<dl class="qr-meta">' +
+          '<dt>编码</dt><dd><b class="mono">' + UI.escapeHtml(code) + '</b></dd>' +
+          '<dt>位置</dt><dd>' + UI.escapeHtml(t.addr || local.addr || '已记录坐标') + '</dd>' +
+          '<dt>负责部门</dt><dd>' + UI.escapeHtml(dept) + '</dd>' +
+          '<dt>紧急度</dt><dd>' + starsHTML(sev) + '</dd>' +
+          '<dt>反馈人数</dt><dd>' + (t.reporters || 1) + ' 人' + (t.merged ? ' · 已合并' : '') + '</dd>' +
+          '<dt>提交时间</dt><dd>' + fmtTime(t.at || local.at) + '</dd>' +
+        '</dl>' +
+        aiLine +
+        '<div class="dsl-h">解决流程</div>' +
+        tlHTML +
+        (paid ? '' : '<div class="dsl-note">积分要等后勤到场核实并处理完才发放，' +
+                     '进度有变化会在这里更新。</div>'),
+      onMount: function (api) {
+        // 注意：api.el 是遮罩层，本身是 flex 行布局。
+        // 按钮要挂进 .sheet-bd，挂到遮罩上会把弹层挤窄。
+        var btn = document.createElement('button');
+        btn.className = 'btn btn--ghost btn--block';
+        btn.style.marginTop = '12px';
+        btn.textContent = '关闭';
+        btn.addEventListener('click', function () { api.close(); });
+        (api.el.querySelector('.sheet-bd') || api.el).appendChild(btn);
+      }
+    });
+  }
+
+  /* ============================================================
+     积分 / 信用分流水
+     ------------------------------------------------------------
+     余额是个结论，流水才是证据。用户质疑"怎么少了 20 分"时，
+     能直接指给他看是哪一条。
+     ============================================================ */
+
+  function openLedger(kind) {
+    const L = window.Ledger;
+    if (!L) { UI.toast('流水模块没加载', 'warn'); return; }
+
+    const isPt = kind === 'points';
+    const items = L.list(kind);
+    const bal = isPt ? (A.get() && A.get().points || 0) : (A.get() && A.get().credit || 0);
+
+    const rows = items.length
+      ? items.map(function (e) {
+          const up = e.d > 0;
+          return '<div class="lg-row">' +
+                   '<div class="lg-main">' +
+                     '<div class="lg-why">' + UI.escapeHtml(e.why || (isPt ? '积分变动' : '信用分变动')) + '</div>' +
+                     '<div class="lg-time">' + fmtTime(e.at) + '</div>' +
+                   '</div>' +
+                   '<div class="lg-d ' + (up ? 'is-up' : 'is-down') + '">' +
+                     (up ? '+' : '') + e.d +
+                     '<small>' + (e.after != null ? '余 ' + e.after : '') + '</small>' +
+                   '</div>' +
+                 '</div>';
+        }).join('')
+      : '<div class="dsl-empty">还没有记录</div>';
+
+    UI.sheet({
+      title: isPt ? '积分流水' : '信用分流水',
+      sub: (isPt ? '只记已到账的' : '定期复盘用') + ' · 当前 ' + bal + (isPt ? ' 分' : ' / 100'),
+      body: '<div class="lg-list">' + rows + '</div>',
+      onMount: function (api) {
+        // 注意：api.el 是遮罩层，本身是 flex 行布局。
+        // 按钮要挂进 .sheet-bd，挂到遮罩上会把弹层挤窄。
+        var btn = document.createElement('button');
+        btn.className = 'btn btn--ghost btn--block';
+        btn.style.marginTop = '12px';
+        btn.textContent = '关闭';
+        btn.addEventListener('click', function () { api.close(); });
+        (api.el.querySelector('.sheet-bd') || api.el).appendChild(btn);
+      }
+    });
   }
 
   function renderProfile() {
@@ -1654,9 +1791,9 @@
     $('#pWeightHint').textContent = A.weightLabel(w) +
       (w < 0.6 ? ' · 不计入合并人数' : ' · 合并时计入人数');
 
-    $('#pCreditNote').textContent = guest
+    $('#pCreditNote').textContent = (guest
       ? '游客的信用分只存在这台设备上，登录后才会长期累积'
-      : '有效上报 +2 · 被复核判定无效 −5 · 低于 60 分进人工复核';
+      : '有效上报 +2 · 被复核判定无效 −5 · 低于 60 分进人工复核') + ' · 点开看流水';
 
     $('#logoutLabel').textContent = guest ? '登录 / 切换账号' : '切换账号 / 退出登录';
 
@@ -2303,6 +2440,26 @@
     renderProfile();
     renderBadges();
     renderScenes();
+
+    /* 点开看细节：列表项 → 上报详情；两处分值 → 流水账。
+       都用事件委托，列表重渲染之后不用重新绑。 */
+    const rl = $('#reportList');
+    if (rl) {
+      rl.addEventListener('click', function (e) {
+        const item = e.target.closest('[data-code]');
+        if (item) openReportDetail(item.dataset.code);
+      });
+    }
+    const creditCard = document.querySelector('.credit-card');
+    if (creditCard) {
+      creditCard.style.cursor = 'pointer';
+      creditCard.addEventListener('click', function () { openLedger('credit'); });
+    }
+    const ptCell = document.querySelector('.score-pair .score-cell');
+    if (ptCell) {
+      ptCell.style.cursor = 'pointer';
+      ptCell.addEventListener('click', function () { openLedger('points'); });
+    }
 
     if (!A.get()) showGate(false);
 

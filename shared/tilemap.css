@@ -176,8 +176,13 @@
 }
 .tm-me {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 0;
   height: 0;
+  /* 位置靠 translate3d 写入（见 tilemap.js 的 placeMe），
+     这里提成独立合成层，拖动时不再逐帧重排 */
+  will-change: transform;
 }
 .tm-me-ring {
   position: absolute;
@@ -188,6 +193,9 @@
   border-radius: 50%;
   background: rgba(30, 123, 214, .26);
   animation: tmMePulse 2.6s ease-out infinite;
+  /* 只动 transform/opacity；backface 关掉能少一层缓存副本 */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .tm-me-dot {
   position: absolute;

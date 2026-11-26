@@ -720,6 +720,10 @@
         '<td>' +
           '<div class="cell-main">' + escapeHtml(o.address) + '</div>' +
           '<div class="cell-sub"><span class="mono">' + o.orderNo + '</span> · ' + fmtAgo(o.createdAt) + '</div>' +
+          (function () {
+            var s2 = slaOf(o);
+            return '<div class="cell-sla ' + s2.tone + '">' + s2.text + '</div>';
+          })() +
         '</td>' +
         '<td>' +
           '<span class="chip" style="background:' + t.soft + ';color:' + t.color + '">' +
@@ -1217,9 +1221,52 @@
    * 8. 详情抽屉
    * ==================================================================== */
 
+  /* ======================================================================
+   * 时效与同处历史
+   * ----------------------------------------------------------------------
+   * 后勤最关心的其实不是"有多少单"，而是"哪几单快到点了"。
+   * 所以每条工单都算一个剩余小时数：P0 4 小时、P1 8 小时、P2 24 小时，
+   * 超了标红，剩不到 2 小时标黄。
+   *
+   * 另一件事是"这条街这个月第几次了"。同一位置反复报同类问题，
+   * 说明上次只是补了一下，没有根治——这比单条工单更值得往上报。
+   * ==================================================================== */
+
+  var SLA_HOURS = { P0: 4, P1: 8, P2: 24, P3: 48, P4: 72 };
+  var HOUR_MS = 3600 * 1000;
+
+  function slaOf(o) {
+    var pri = D.priorityOf(o.severity).id;
+    var limitH = SLA_HOURS[pri] || 24;
+    if (o.status === 'resolved') {
+      return { text: '已办结', tone: 'is-ok', limitH: limitH };
+    }
+    var left = o.createdAt + limitH * HOUR_MS - Date.now();
+    var h = Math.max(1, Math.round(Math.abs(left) / HOUR_MS));
+    if (left < 0) return { text: '已超时 ' + h + ' 小时', tone: 'is-late', limitH: limitH };
+    if (left < 2 * HOUR_MS) return { text: '剩 ' + h + ' 小时到期', tone: 'is-soon', limitH: limitH };
+    return { text: '剩 ' + h + ' 小时', tone: '', limitH: limitH };
+  }
+
+  /** 近 30 天、同一类型、300 米内的其它工单数 */
+  function repeatOf(o) {
+    if (!o || typeof o.lat !== 'number') return 0;
+    var n = 0;
+    ORDERS.forEach(function (x) {
+      if (!x || x.id === o.id || x.type !== o.type) return;
+      if (Date.now() - x.createdAt > 30 * 24 * HOUR_MS) return;
+      var dLat = Math.abs(x.lat - o.lat) * 111000;
+      var dLng = Math.abs(x.lng - o.lng) * 91000;   // 郑州纬度下经度 1° ≈ 91km
+      if (Math.sqrt(dLat * dLat + dLng * dLng) < 300) n++;
+    });
+    return n;
+  }
+
   function openDrawer(o) {
     var t = D.type(o.type);
     var pri = D.priorityOf(o.severity);
+    var sla = slaOf(o);
+    var rep = repeatOf(o);
 
     $('#drawerTitle').textContent = o.orderNo;
     $('#drawerSub').textContent = o.address + ' · ' + fmtAgo(o.createdAt) + '上报';
@@ -1240,6 +1287,14 @@
         o.lat.toFixed(5) + ', ' + o.lng.toFixed(5) + '</span></div>' +
       '<div class="dr-row"><span class="dr-k">状态</span><span class="dr-v">' +
         ({ pending: '待处理', processing: '处理中', resolved: '已完成' })[o.status] + '</span></div>' +
+      '<div class="dr-row"><span class="dr-k">时效</span><span class="dr-v">' +
+        '<span class="sla-chip ' + sla.tone + '">' + sla.text + '</span>' +
+        '<span class="dr-dim">　' + pri.id + ' 要求 ' + sla.limitH + ' 小时内响应</span></span></div>' +
+      (rep
+        ? '<div class="dr-row"><span class="dr-k">同处历史</span><span class="dr-v">' +
+          '近 30 天同一位置已有 <b>' + rep + '</b> 条同类工单' +
+          (rep >= 2 ? '，建议这次一并根治' : '') + '</span></div>'
+        : '') +
 
       '<div class="dr-section">' +
         '<div class="dr-section-title">AI 诊断 · 仅供参考</div>' +
@@ -1596,7 +1651,9 @@
   function liveSection(o) {
     var a = o.analysis || {};
     var m = a.metrics || {};
-    var src = a.source === 'deepseek' ? 'DeepSeek 语义判定' : '本地规则引擎';
+    var src = a.source === 'deepseek'
+      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
+      : '本地规则引擎';
 
     var LABEL = {
       sharpness: '清晰度',
@@ -1621,6 +1678,10 @@
       '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
         '<span class="dr-v">' + src +
         (a.soft ? '（画质仅提示）' : '') + '</span></div>' +
+      (a.seen
+        ? '<div class="dr-seen"><span class="dr-seen-k">模型看到的</span>' +
+          escapeHtml(a.seen) + '</div>'
+        : '') +
       (rows ? '<div class="dr-metrics">' + rows + '</div>' : '') +
       '<div class="dr-note" style="margin-top:8px">' +
         (a.pass
