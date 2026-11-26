@@ -1068,6 +1068,28 @@ textarea::placeholder { color: #B6C2C0; }
 .tl-t { font-size: 12.5px; line-height: 1.55; }
 .tl-time { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
 
+.tl-row.is-now::before {
+  border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: 0 0 0 3px rgba(58, 110, 165, .15);
+}
+.tl-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-role {
+  font-size: 9.5px; line-height: 1; padding: 2px 5px;
+  border-radius: 4px; white-space: nowrap;
+}
+.tl-role[data-role="user"] { background: rgba(58, 110, 165, .12); color: #3a6ea5; }
+.tl-role[data-role="ai"] { background: rgba(103, 86, 173, .13); color: #6756ad; }
+.tl-role[data-role="crew"] { background: rgba(201, 123, 32, .14); color: #a5671a; }
+.tl-role[data-role="admin"] { background: rgba(46, 139, 98, .13); color: #2e7d5b; }
+.tl-role[data-role="system"] { background: rgba(0, 0, 0, .05); color: var(--text-3); }
+.tl-by { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+.tl-note {
+  margin-top: 5px; padding: 6px 9px;
+  font-size: 11.5px; line-height: 1.65; color: var(--text-2);
+  background: rgba(0, 0, 0, .028); border-radius: 7px; word-break: break-word;
+}
+
 /* ============================================================
    我的
    ============================================================ */
@@ -1432,7 +1454,7 @@ textarea::placeholder { color: #B6C2C0; }
 .lg-d.is-down { color: var(--danger); }
 
 </style>
-<!-- 单文件构建 · 2026-11-26 12:43:23 · CSS×2 JS×10 -->
+<!-- 单文件构建 · 2026-11-26 14:17:05 · CSS×2 JS×10 -->
 </head>
 <body>
 
@@ -2988,7 +3010,11 @@ window.Payout = (function () {
     t.timeline = t.timeline || [];
     t.timeline.push({
       at: now,
-      label: opts.note || ('后勤已到场核实并处理完成 · ' + pts + ' 积分已到账'),
+      label: opts.note || '后勤已到场核实并处理完成',
+      note: '现场复核通过，' + pts + ' 积分已发放给上报人',
+      by: '后勤保障部 · 值班主管',
+      role: 'admin',
+      state: 'resolved',
       tone: 'ok'
     });
 
@@ -3642,6 +3668,84 @@ window.Auth = (function () {
   function loadCodes() { return read(CODE_KEY, {}) || {}; }
 
   /**
+   * 工单进度节点。
+   * 一开始只写了一句"已提交"，用户点开只看到一行字，等于没进度。
+   * 现在每个节点都带：谁做的（by）、什么角色、做了什么（label）、
+   * 为什么/细节（note）、这一步之后的状态（state）。
+   * 前台按时间轴渲染，后台在同一份数据上追加。
+   */
+  function buildInitTimeline(t) {
+    var at = Date.now();
+    var a = t.analysis || null;
+    var st = t.status || 'pending';
+    var list = [{
+      at: at,
+      label: '上报已提交',
+      note: t.desc ? '描述：' + t.desc : '只传了照片，没有填写文字描述',
+      by: '上报人',
+      role: 'user',
+      state: st,
+      tone: 'ok'
+    }];
+
+    if (!a) {
+      list.push({
+        at: at + 1,
+        label: '已转入人工复核池',
+        note: '这条没有经过自动判定，等管理员人工确认',
+        by: '系统',
+        role: 'system',
+        state: 'review',
+        tone: 'warn'
+      });
+      return list;
+    }
+
+    var pass = a.pass !== false;
+    var srcLabel = a.source === 'deepseek'
+      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
+      : '本地规则引擎';
+    var noteParts = [];
+    if (a.seen) noteParts.push('画面：' + a.seen);
+    if (a.detail) noteParts.push(a.detail);
+    if (a.soft && a.qualityHint && a.qualityHint.message) {
+      noteParts.push('画质存疑：' + a.qualityHint.message);
+    }
+
+    list.push({
+      at: at + 1,
+      label: pass ? 'AI 判定通过' : 'AI 判定未通过',
+      note: noteParts.join('；') || (pass ? '照片与所选类型一致' : '未给出具体原因'),
+      by: '哨兵智能体 · ' + srcLabel,
+      role: 'ai',
+      state: pass ? st : 'review',
+      tone: pass ? '' : 'warn'
+    });
+
+    if (!pass || st === 'review') {
+      list.push({
+        at: at + 2,
+        label: '已转入人工复核池',
+        note: '等管理员看过现场照片再做决定',
+        by: '系统',
+        role: 'system',
+        state: 'review',
+        tone: 'warn'
+      });
+    } else {
+      list.push({
+        at: at + 2,
+        label: '已按类型自动派单',
+        note: (t.dept || '相关班组') + ' · 等待接单',
+        by: '系统',
+        role: 'system',
+        state: st
+      });
+    }
+    return list;
+  }
+
+  /**
    * 提交成功时登记一条编码。
    * 一条编码对应一张工单，里面记了上报人（游客也能追溯到自己这台设备）。
    */
@@ -3655,7 +3759,7 @@ window.Auth = (function () {
       addr: t.addr,
       lng: t.lng, lat: t.lat,
       dept: t.dept,
-      status: 'pending',              // pending | processing | resolved | review
+      status: t.status || 'pending',   // pending | processing | resolved | review
       severity: t.severity,
       merged: !!t.merged,
       reporters: t.reporters || 1,
@@ -3671,8 +3775,10 @@ window.Auth = (function () {
       desc: t.desc || '',
       analysis: t.analysis || null,
       at: Date.now(),
-      timeline: [{ at: Date.now(), label: '已提交，进入待派单池', tone: 'ok' }]
+      timeline: buildInitTimeline(t)
     };
+    // 登记时就已经是 review 的（画质存疑 / 强制转人工），状态和最后一个节点要对上
+    rec.status = rec.timeline[rec.timeline.length - 1].state || rec.status;
     codes[code] = rec;
     write(CODE_KEY, codes);
     return rec;
@@ -3712,12 +3818,46 @@ window.Auth = (function () {
       .sort(function (a, b) { return b.at - a.at; });
   }
 
-  function advanceTicket(code, status, label) {
+  function advanceTicket(code, status, label, extra) {
     const codes = loadCodes();
     const c = normalizeCode(code);
     if (!codes[c]) return null;
+    const e = extra || {};
     codes[c].status = status;
-    codes[c].timeline.push({ at: Date.now(), label: label, tone: status === 'resolved' ? 'ok' : '' });
+    codes[c].timeline = codes[c].timeline || [];
+    codes[c].timeline.push({
+      at: Date.now(),
+      label: label,
+      note: e.note || '',
+      by: e.by || '后勤班组',
+      role: e.role || 'crew',
+      state: status,
+      tone: status === 'resolved' ? 'ok' : (e.tone || '')
+    });
+    write(CODE_KEY, codes);
+    return codes[c];
+  }
+
+  /**
+   * 往一张工单上追加一条进度。
+   * 后台抽屉里"记一条进展"走这个口子，前端只负责传文字。
+   */
+  function addTimeline(code, entry) {
+    const codes = loadCodes();
+    const c = normalizeCode(code);
+    if (!codes[c]) return null;
+    const e = entry || {};
+    codes[c].timeline = codes[c].timeline || [];
+    codes[c].timeline.push({
+      at: e.at || Date.now(),
+      label: e.label || '处理进展',
+      note: e.note || '',
+      by: e.by || '后勤班组',
+      role: e.role || 'crew',
+      state: e.state || codes[c].status,
+      tone: e.tone || ''
+    });
+    if (e.status) codes[c].status = e.status;
     write(CODE_KEY, codes);
     return codes[c];
   }
@@ -3738,10 +3878,21 @@ window.Auth = (function () {
       at: Date.now() - 26 * 3600 * 1000,
       demo: true,
       timeline: [
-        { at: Date.now() - 26 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
-        { at: Date.now() - 24 * 3600 * 1000, label: '又有 1 位同学上报同一处，紧急度升到 3 星' },
-        { at: Date.now() - 20 * 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
-        { at: Date.now() - 5 * 3600 * 1000, label: '维修师傅已到现场，等待更换灯管' }
+        { at: Date.now() - 26 * 3600 * 1000, label: '上报已提交',
+          note: '描述：连廊第二盏灯不亮，晚上看不清台阶',
+          by: '上报人', role: 'user', state: 'pending', tone: 'ok' },
+        { at: Date.now() - 26 * 3600 * 1000 + 4000, label: 'AI 判定通过',
+          note: '画面：夜间连廊，第二盏灯不亮，其余灯正常；与所选「照明路灯」一致',
+          by: '哨兵智能体 · DeepSeek 看图判定', role: 'ai', state: 'pending' },
+        { at: Date.now() - 24 * 3600 * 1000, label: '又有 1 位同学上报同一处',
+          note: '紧急度 2 星 → 3 星，已合并为一张工单，反馈人数 4 人',
+          by: '系统', role: 'system', state: 'pending' },
+        { at: Date.now() - 20 * 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组',
+          note: '李师傅接单，承诺 8 小时内到场',
+          by: '调度台', role: 'admin', state: 'processing' },
+        { at: Date.now() - 5 * 3600 * 1000, label: '维修师傅已到现场',
+          note: '检查确认镇流器烧损，需回库领件，次日上午更换',
+          by: '水电班组 · 李师傅', role: 'crew', state: 'processing' }
       ]
     },
     'JW-Q7M4TP': {
@@ -3759,10 +3910,24 @@ window.Auth = (function () {
       at: Date.now() - 3 * 24 * 3600 * 1000,
       demo: true,
       timeline: [
-        { at: Date.now() - 3 * 24 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
-        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口，回填塌陷' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，70 积分已到账', tone: 'ok' }
+        { at: Date.now() - 3 * 24 * 3600 * 1000, label: '上报已提交',
+          note: '描述：12 号楼东侧路面一直有水，怀疑下水堵了',
+          by: '上报人', role: 'user', state: 'pending', tone: 'ok' },
+        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3000, label: 'AI 判定通过',
+          note: '画面：路面大片积水，反光，旁边是排水口；与所选「给排水」一致',
+          by: '哨兵智能体 · DeepSeek 看图判定', role: 'ai', state: 'pending' },
+        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组',
+          note: 'P1 工单，要求 8 小时内到场',
+          by: '调度台', role: 'admin', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000 - 3 * 3600 * 1000, label: '已到场排查',
+          note: '确认下水口被落叶与泥沙堵死，管道本身无破损',
+          by: '水电班组 · 何师傅', role: 'crew', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口并回填塌陷',
+          note: '清出两桶淤积物，重新找坡，冲水试验排水正常',
+          by: '水电班组 · 何师傅', role: 'crew', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，工单办结',
+          note: '现场复核通过，70 积分已发放给上报人',
+          by: '后勤保障部 · 值班主管', role: 'admin', state: 'resolved', tone: 'ok' }
       ]
     }
   };
@@ -3800,6 +3965,7 @@ window.Auth = (function () {
     myTickets: myTickets,
     allTickets: allTickets,
     advanceTicket: advanceTicket,
+    addTimeline: addTimeline,
     normalizeCode: normalizeCode
   };
 })();
@@ -4010,14 +4176,31 @@ window.Auth = (function () {
   var THRESH = {
     blur: 25,          // sharpScore 低于此值判为模糊
     dark: 0.10,        // 亮度低于此值判为过暗
+    blackout: 0.035,   // 低于此值不是"暗"，是镜头被挡/没开灯
     overexposed: 0.94, // 高于此值判为过曝
     flat: 0.88,        // 平坦区超过此值才怀疑是截图
-    flatEdge: 0.012    // 且边缘密度也极低，两个条件同时满足
+    flatEdge: 0.012,   // 且边缘密度也极低，两个条件同时满足
+    noEdge: 0.004,     // 边缘密度低于此值……
+    noInfoSharp: 12    // ……且清晰度也极低 = 画面里没有任何结构
   };
 
   /* ======================================================================
    * 三、闸门一：视觉质量（纯算法）
    * ==================================================================== */
+
+  /**
+   * 画质问题分两种，不能一视同仁：
+   *
+   *   hard —— 画面里根本没有东西。镜头被手指挡住、对着桌面、对着白墙、
+   *           全黑没开灯。这类图无论谁来判都不该进工单池，模型也救不回来，
+   *           因为连"这是什么"都无从谈起。
+   *   soft —— 画面里有东西，只是拍得不好。夜里路灯不亮本来就是暗的，
+   *           雾气、逆光、手抖都会压低清晰度。这类只提示，不拦死。
+   *
+   * 之前所有画质原因都被当成 soft 一律放行，结果是一片均匀的糊图
+   * 也能进工单池 —— 闸门一等于不存在。
+   */
+  var HARD_REASONS = { blank: 1, blackout: 1, overexposed: 1, flat: 1 };
 
   function gateVision(m) {
     var issues = [];
@@ -4025,17 +4208,24 @@ window.Auth = (function () {
     var message = '';
 
     if (!m.ok) {
-      return { id: 'vision', pass: true, degraded: true, reason: null, message: '图片未能解析，已放行待人工复核' };
+      return { id: 'vision', pass: true, degraded: true, hard: false, reason: null, message: '图片未能解析，已放行待人工复核' };
     }
 
-    if (m.sharpScore < THRESH.blur) {
-      reason = 'blur';
-      message = '这张照片有点糊，手抖了一下吧？';
-      issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
-    } else if (m.brightness < THRESH.dark) {
-      reason = 'dark';
-      message = '照片太暗了，看不太清设施本身';
-      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
+    // 整张图几乎没有超过阈值的梯度，清晰度也贴着地板 —— 这不是"糊"，
+    // 这是没拍到任何有结构的物体。实测中挡住镜头、拍桌面、拍纯色墙
+    // 都会落在这个区间（edgeDensity 0.000、sharpScore 个位数）。
+    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp)
+      || (m.flatRatio >= 0.97 && m.edgeDensity < 0.008);
+
+    if (noContent) {
+      reason = 'blank';
+      message = '这张照片里看不出任何东西，是不是挡住镜头了？';
+      issues.push('边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%，清晰度 ' + m.sharpScore +
+        '/100，画面没有可辨识的结构');
+    } else if (m.brightness < THRESH.blackout) {
+      reason = 'blackout';
+      message = '照片基本是黑的，什么也看不见';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.blackout * 100) + '%');
     } else if (m.brightness > THRESH.overexposed) {
       reason = 'overexposed';
       message = '照片曝得太亮了，细节都没了';
@@ -4044,12 +4234,27 @@ window.Auth = (function () {
       reason = 'flat';
       message = '这张不太像现场拍的，像是截图或者纯色图';
       issues.push('平坦区占比 ' + (m.flatRatio * 100).toFixed(0) + '%，边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%');
+    } else if (m.sharpScore < THRESH.blur) {
+      reason = 'blur';
+      message = '这张照片有点糊，手抖了一下吧？';
+      issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
+    } else if (m.brightness < THRESH.dark) {
+      reason = 'dark';
+      message = '照片有点暗，看不清设施本身';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
     }
+
+    // 「平坦又清晰」可能只是拍了一大片墙或者天空，未必是假图；
+    // 「平坦又模糊」才是截图/纯色图。所以 flat 的硬度要看清晰度。
+    var hard = !!(reason && HARD_REASONS[reason]);
+    if (reason === 'flat') hard = m.sharpScore < THRESH.blur;
 
     return {
       id: 'vision',
       pass: !reason,
       reason: reason,
+      // 有东西但没拍好 = soft；压根没拍到东西 = hard
+      hard: hard,
       message: message,
       metrics: m,
       issues: issues
@@ -4400,8 +4605,9 @@ window.Auth = (function () {
         var vision = gateVision(metrics);
         var local = { metrics: metrics, desc: ctx.desc, type: ctx.type };
 
-        // 视觉闸门已经拦下，没必要再花钱调模型
-        if (!vision.pass) {
+        // 硬伤（画面里没东西）直接拦，没必要再花钱调模型；
+        // 软伤（拍糊了、偏暗）继续往下走，让模型看一眼再决定。
+        if (!vision.pass && vision.hard) {
           return finish({
             pass: false,
             gates: [vision],
@@ -4415,6 +4621,14 @@ window.Auth = (function () {
             latency: Date.now() - t0
           });
         }
+
+        // 画质存疑但还没到硬拦的程度：最终结论由模型/规则决定，
+        // 但要把这层疑虑带到工单上，后台能看见"这张是放了但画质不踏实"。
+        var qualityHint = vision.pass ? null : {
+          reason: vision.reason,
+          message: vision.message,
+          issues: vision.issues
+        };
 
         var semanticPromise;
         if (status.mode === 'deepseek') {
@@ -4441,10 +4655,12 @@ window.Auth = (function () {
              —— 没图（样例插画、或者关闭了视觉）：它只是拿几个统计数字在猜。
                 拿数字猜"这图太平淡"，会把夜里的路灯实拍全部毙掉，
                 而路灯问题恰好都发生在夜里。这种情况一律降级成建议。 */
-          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
+          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, blank: 1, blackout: 1, 'non-facility': 1 };
           var soft = false;
-          if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
-            soft = !sem.vision;
+          // 只有"模型没看到图、纯凭统计量下的结论"才降级成建议。
+          // 模型真看了图还是说不行，那就听它的。
+          if (sem.pass === false && VISUAL_REASONS[sem.reason] && !sem.vision) {
+            soft = true;
           }
 
           /* 类型错配在有图时同理。没图时还要本地规则背书：
@@ -4456,8 +4672,12 @@ window.Auth = (function () {
             if (localSem.pass) soft = true;
           }
 
+          var passed = soft ? true : sem.pass;
+          // 放行了，但画质这层疑虑还在 → 进人工复核队列，不能当没事发生
+          var review = !!qualityHint || !!sem.degraded;
+
           return finish({
-            pass: soft ? true : sem.pass,
+            pass: passed,
             gates: gates,
             reason: soft ? null : sem.reason,
             message: sem.message,
@@ -4475,6 +4695,8 @@ window.Auth = (function () {
             sawImage: !!sem.vision,
             metrics: metrics,
             degraded: !!sem.degraded,
+            qualityHint: qualityHint,
+            review: passed && review,
             latency: Date.now() - t0
           });
         });
@@ -4531,6 +4753,7 @@ window.Auth = (function () {
     THRESH: THRESH,
     SYSTEM_PROMPT: SYSTEM_PROMPT,
     /** 暴露给测试用 */
+    _gateVision: gateVision,
     _gateSemanticRules: gateSemanticRules,
     _safeParseJSON: safeParseJSON
   };
@@ -5230,6 +5453,16 @@ window.Auth = (function () {
     const d = new Date(at);
     const p = (n) => (n < 10 ? '0' + n : '' + n);
     return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  /** 两个节点之间隔了多久 —— 只写绝对时间看不出一单卡了几天 */
+  function fmtSpan(ms) {
+    const m = Math.round(ms / 60000);
+    if (m < 1) return '不到 1 分钟';
+    if (m < 60) return m + ' 分钟';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' 小时' + (m % 60 ? ' ' + (m % 60) + ' 分' : '');
+    return Math.floor(h / 24) + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 小时' : '');
   }
 
   function distanceText(lng, lat) {
@@ -6089,12 +6322,27 @@ window.Auth = (function () {
           '<dt>积分</dt><dd>' + payLine + '</dd>' +
         '</dl>' +
         '<div class="tl">' +
-          (t.timeline || []).map(function (e, i) {
-            return '<div class="tl-row' + (i === 0 ? ' is-ok' : '') + '">' +
-                     '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
-                     '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
-                   '</div>';
-          }).join('') +
+          (function () {
+            const list = (t.timeline || []).slice().sort(function (a, b) { return a.at - b.at; });
+            const ROLE = { user: '上报人', ai: 'AI', crew: '班组', admin: '管理端', system: '系统' };
+            if (!list.length) return '<div class="empty" style="padding:14px 0">还没有流转记录</div>';
+            return list.map(function (e, i) {
+              const gap = i > 0 ? e.at - list[i - 1].at : 0;
+              const last = i === list.length - 1;
+              return '<div class="tl-row' + (last ? ' is-now' : '') +
+                       (e.tone === 'ok' ? ' is-ok' : '') + '">' +
+                '<div class="tl-head">' +
+                  '<span class="tl-t">' + UI.escapeHtml(e.label) + '</span>' +
+                  '<span class="tl-role" data-role="' + (e.role || 'crew') + '">' +
+                    (ROLE[e.role] || '处理') + '</span>' +
+                '</div>' +
+                (e.by ? '<div class="tl-by">' + UI.escapeHtml(e.by) + '</div>' : '') +
+                (e.note ? '<div class="tl-note">' + UI.escapeHtml(e.note) + '</div>' : '') +
+                '<div class="tl-time">' + fmtTime(e.at) +
+                  (gap > 60000 ? '　距上一步 ' + fmtSpan(gap) : '') + '</div>' +
+              '</div>';
+            }).join('');
+          })() +
         '</div>' +
       '</div>';
   }

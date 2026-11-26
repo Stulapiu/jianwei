@@ -309,6 +309,84 @@ window.Auth = (function () {
   function loadCodes() { return read(CODE_KEY, {}) || {}; }
 
   /**
+   * 工单进度节点。
+   * 一开始只写了一句"已提交"，用户点开只看到一行字，等于没进度。
+   * 现在每个节点都带：谁做的（by）、什么角色、做了什么（label）、
+   * 为什么/细节（note）、这一步之后的状态（state）。
+   * 前台按时间轴渲染，后台在同一份数据上追加。
+   */
+  function buildInitTimeline(t) {
+    var at = Date.now();
+    var a = t.analysis || null;
+    var st = t.status || 'pending';
+    var list = [{
+      at: at,
+      label: '上报已提交',
+      note: t.desc ? '描述：' + t.desc : '只传了照片，没有填写文字描述',
+      by: '上报人',
+      role: 'user',
+      state: st,
+      tone: 'ok'
+    }];
+
+    if (!a) {
+      list.push({
+        at: at + 1,
+        label: '已转入人工复核池',
+        note: '这条没有经过自动判定，等管理员人工确认',
+        by: '系统',
+        role: 'system',
+        state: 'review',
+        tone: 'warn'
+      });
+      return list;
+    }
+
+    var pass = a.pass !== false;
+    var srcLabel = a.source === 'deepseek'
+      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
+      : '本地规则引擎';
+    var noteParts = [];
+    if (a.seen) noteParts.push('画面：' + a.seen);
+    if (a.detail) noteParts.push(a.detail);
+    if (a.soft && a.qualityHint && a.qualityHint.message) {
+      noteParts.push('画质存疑：' + a.qualityHint.message);
+    }
+
+    list.push({
+      at: at + 1,
+      label: pass ? 'AI 判定通过' : 'AI 判定未通过',
+      note: noteParts.join('；') || (pass ? '照片与所选类型一致' : '未给出具体原因'),
+      by: '哨兵智能体 · ' + srcLabel,
+      role: 'ai',
+      state: pass ? st : 'review',
+      tone: pass ? '' : 'warn'
+    });
+
+    if (!pass || st === 'review') {
+      list.push({
+        at: at + 2,
+        label: '已转入人工复核池',
+        note: '等管理员看过现场照片再做决定',
+        by: '系统',
+        role: 'system',
+        state: 'review',
+        tone: 'warn'
+      });
+    } else {
+      list.push({
+        at: at + 2,
+        label: '已按类型自动派单',
+        note: (t.dept || '相关班组') + ' · 等待接单',
+        by: '系统',
+        role: 'system',
+        state: st
+      });
+    }
+    return list;
+  }
+
+  /**
    * 提交成功时登记一条编码。
    * 一条编码对应一张工单，里面记了上报人（游客也能追溯到自己这台设备）。
    */
@@ -322,7 +400,7 @@ window.Auth = (function () {
       addr: t.addr,
       lng: t.lng, lat: t.lat,
       dept: t.dept,
-      status: 'pending',              // pending | processing | resolved | review
+      status: t.status || 'pending',   // pending | processing | resolved | review
       severity: t.severity,
       merged: !!t.merged,
       reporters: t.reporters || 1,
@@ -338,8 +416,10 @@ window.Auth = (function () {
       desc: t.desc || '',
       analysis: t.analysis || null,
       at: Date.now(),
-      timeline: [{ at: Date.now(), label: '已提交，进入待派单池', tone: 'ok' }]
+      timeline: buildInitTimeline(t)
     };
+    // 登记时就已经是 review 的（画质存疑 / 强制转人工），状态和最后一个节点要对上
+    rec.status = rec.timeline[rec.timeline.length - 1].state || rec.status;
     codes[code] = rec;
     write(CODE_KEY, codes);
     return rec;
@@ -379,12 +459,46 @@ window.Auth = (function () {
       .sort(function (a, b) { return b.at - a.at; });
   }
 
-  function advanceTicket(code, status, label) {
+  function advanceTicket(code, status, label, extra) {
     const codes = loadCodes();
     const c = normalizeCode(code);
     if (!codes[c]) return null;
+    const e = extra || {};
     codes[c].status = status;
-    codes[c].timeline.push({ at: Date.now(), label: label, tone: status === 'resolved' ? 'ok' : '' });
+    codes[c].timeline = codes[c].timeline || [];
+    codes[c].timeline.push({
+      at: Date.now(),
+      label: label,
+      note: e.note || '',
+      by: e.by || '后勤班组',
+      role: e.role || 'crew',
+      state: status,
+      tone: status === 'resolved' ? 'ok' : (e.tone || '')
+    });
+    write(CODE_KEY, codes);
+    return codes[c];
+  }
+
+  /**
+   * 往一张工单上追加一条进度。
+   * 后台抽屉里"记一条进展"走这个口子，前端只负责传文字。
+   */
+  function addTimeline(code, entry) {
+    const codes = loadCodes();
+    const c = normalizeCode(code);
+    if (!codes[c]) return null;
+    const e = entry || {};
+    codes[c].timeline = codes[c].timeline || [];
+    codes[c].timeline.push({
+      at: e.at || Date.now(),
+      label: e.label || '处理进展',
+      note: e.note || '',
+      by: e.by || '后勤班组',
+      role: e.role || 'crew',
+      state: e.state || codes[c].status,
+      tone: e.tone || ''
+    });
+    if (e.status) codes[c].status = e.status;
     write(CODE_KEY, codes);
     return codes[c];
   }
@@ -405,10 +519,21 @@ window.Auth = (function () {
       at: Date.now() - 26 * 3600 * 1000,
       demo: true,
       timeline: [
-        { at: Date.now() - 26 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
-        { at: Date.now() - 24 * 3600 * 1000, label: '又有 1 位同学上报同一处，紧急度升到 3 星' },
-        { at: Date.now() - 20 * 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
-        { at: Date.now() - 5 * 3600 * 1000, label: '维修师傅已到现场，等待更换灯管' }
+        { at: Date.now() - 26 * 3600 * 1000, label: '上报已提交',
+          note: '描述：连廊第二盏灯不亮，晚上看不清台阶',
+          by: '上报人', role: 'user', state: 'pending', tone: 'ok' },
+        { at: Date.now() - 26 * 3600 * 1000 + 4000, label: 'AI 判定通过',
+          note: '画面：夜间连廊，第二盏灯不亮，其余灯正常；与所选「照明路灯」一致',
+          by: '哨兵智能体 · DeepSeek 看图判定', role: 'ai', state: 'pending' },
+        { at: Date.now() - 24 * 3600 * 1000, label: '又有 1 位同学上报同一处',
+          note: '紧急度 2 星 → 3 星，已合并为一张工单，反馈人数 4 人',
+          by: '系统', role: 'system', state: 'pending' },
+        { at: Date.now() - 20 * 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组',
+          note: '李师傅接单，承诺 8 小时内到场',
+          by: '调度台', role: 'admin', state: 'processing' },
+        { at: Date.now() - 5 * 3600 * 1000, label: '维修师傅已到现场',
+          note: '检查确认镇流器烧损，需回库领件，次日上午更换',
+          by: '水电班组 · 李师傅', role: 'crew', state: 'processing' }
       ]
     },
     'JW-Q7M4TP': {
@@ -426,10 +551,24 @@ window.Auth = (function () {
       at: Date.now() - 3 * 24 * 3600 * 1000,
       demo: true,
       timeline: [
-        { at: Date.now() - 3 * 24 * 3600 * 1000, label: '已提交，进入待派单池', tone: 'ok' },
-        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口，回填塌陷' },
-        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，70 积分已到账', tone: 'ok' }
+        { at: Date.now() - 3 * 24 * 3600 * 1000, label: '上报已提交',
+          note: '描述：12 号楼东侧路面一直有水，怀疑下水堵了',
+          by: '上报人', role: 'user', state: 'pending', tone: 'ok' },
+        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3000, label: 'AI 判定通过',
+          note: '画面：路面大片积水，反光，旁边是排水口；与所选「给排水」一致',
+          by: '哨兵智能体 · DeepSeek 看图判定', role: 'ai', state: 'pending' },
+        { at: Date.now() - 3 * 24 * 3600 * 1000 + 3600 * 1000, label: '已分派给 后勤保障部 · 水电班组',
+          note: 'P1 工单，要求 8 小时内到场',
+          by: '调度台', role: 'admin', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000 - 3 * 3600 * 1000, label: '已到场排查',
+          note: '确认下水口被落叶与泥沙堵死，管道本身无破损',
+          by: '水电班组 · 何师傅', role: 'crew', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000, label: '已疏通排水口并回填塌陷',
+          note: '清出两桶淤积物，重新找坡，冲水试验排水正常',
+          by: '水电班组 · 何师傅', role: 'crew', state: 'processing' },
+        { at: Date.now() - 2 * 24 * 3600 * 1000 + 1800 * 1000, label: '处理完成，工单办结',
+          note: '现场复核通过，70 积分已发放给上报人',
+          by: '后勤保障部 · 值班主管', role: 'admin', state: 'resolved', tone: 'ok' }
       ]
     }
   };
@@ -467,6 +606,7 @@ window.Auth = (function () {
     myTickets: myTickets,
     allTickets: allTickets,
     advanceTicket: advanceTicket,
+    addTimeline: addTimeline,
     normalizeCode: normalizeCode
   };
 })();

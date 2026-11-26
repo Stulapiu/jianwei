@@ -1055,17 +1055,11 @@
       lat: state.lat
     });
 
-    // 实拍图不套演示样例的阈值。
-    // 那套 blur/dark 的档位是拿示意图一张张量出来的，真实相机拍的
-    // 夜景、逆光、大面积天空都会落在区间外，硬套必然误杀。
-    // 所以实拍只保留"内容判断"（类型错配、没有设施），画质一律只提示不拦截。
-    const QUALITY_ONLY = { blur: 1, dark: 1, overexposed: 1, flat: 1 };
-    if (!v.pass && state.photos[0].real && QUALITY_ONLY[v.reason]) {
-      v.realPhotoSoft = true;
-      v.pass = true;
-      v.summary = v.summary || '实拍照片已通过内容判断';
-      v.advice = '画质提示仅作参考，已按实拍放行';
-    }
+    // 这里曾经有一段「实拍图画质一律放行」的逻辑，理由是阈值是拿示意图
+    // 标定的，怕误杀夜景。方向对，做法错：它把 blank（镜头被挡、拍到桌面、
+    // 一片纯色）也一起放了，闸门一等于不存在。
+    // 现在由 agent.js 分流：没拍到东西是硬拦（重拍），拍到了但没拍好是
+    // 软提示（放行 + 进人工复核）。前端不再二次覆盖模型的结论。
 
     // 真实模型通常 1–3 秒，本地规则只要几十毫秒。
     // 太快反而显得"根本没在看"，兜一个下限，也让讲解有个节拍。
@@ -1126,7 +1120,10 @@
         reason: v.reason || null,
         summary: v.summary || '',
         advice: v.advice || '',
-        soft: !!v.realPhotoSoft,
+        // soft = 画质存疑但放行了；这类单子后台要标出来，别当成干净单
+        soft: !!v.qualityHint,
+        qualityHint: v.qualityHint || null,
+        review: !!v.review,
         // 模型自述"看到了什么" —— 后台要能核对它是不是真看了图
         seen: v.seen || '',
         sawImage: !!v.sawImage,
@@ -1140,7 +1137,7 @@
       id: 'q' + Date.now(),
       code: ticket.code,
       type: state.type,
-      status: A.needsHumanReview() ? 'review' : 'pending',
+      status: (A.needsHumanReview() || v.review) ? 'review' : 'pending',
       addr: state.addr || '已记录坐标',
       ago: 0,
       merged: merge.merged ? Math.max(1, merge.reporters - 1) : 0,
@@ -1281,6 +1278,19 @@
         '<div class="result-title">已经收到</div>' +
         '<div class="result-sub">谢谢你替这条街多看一眼</div>' +
 
+        // 画质存疑但放行了：要说清楚"接下来会发生什么"，
+        // 否则用户看到待发放的积分一直不到，会以为被吞了
+        (v.review
+          ? '<div class="merge-note" style="background:var(--review-bg);border-color:rgba(107,124,138,.2);margin-bottom:14px">' +
+              '<div style="flex:1"><div style="font-size:12.5px;font-weight:600">这张单会先过一遍人工复核</div>' +
+              '<div class="hint" style="margin-top:2px">' +
+                (v.qualityHint && v.qualityHint.message
+                  ? '画质提示：' + UI.escapeHtml(v.qualityHint.message) + '。'
+                  : '') +
+                '管理员确认现场后照常派单，不扣信用分，处理完积分照发。</div></div>' +
+            '</div>'
+          : '') +
+
         '<div class="code-card">' +
           '<div class="cc-k">' + UI.icon('ticket', 12) + '查询编码</div>' +
           '<div class="cc-row">' +
@@ -1365,6 +1375,8 @@
   function showReject(v) {
     const typeLabel = D.TYPE_LABEL[state.type];
     const reasonText = {
+      blank: '画面里没有可辨识的内容',
+      blackout: '照片几乎全黑',
       blur: '画面不够清晰',
       dark: '照片太暗',
       overexposed: '照片过曝',
@@ -1372,6 +1384,13 @@
       'non-facility': '没识别到公共设施',
       mismatch: '描述与所选类型不一致'
     }[v.reason] || '照片信息不足';
+
+    // 空白图是"没拍到"，和被挡下来的糊图不是一回事，提示得说人话
+    const hintText = v.reason === 'blank' || v.reason === 'blackout'
+      ? '这张照片里看不出任何东西，通常是手指挡住了镜头、对着桌面或墙面拍的。' +
+        '把镜头对准要报的设施再拍一张就行。'
+      : '这次不算你的错，只是 AI 想让工单更准确一点。' +
+        '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。';
 
     const html =
       '<div class="result-wrap">' +
@@ -1384,10 +1403,7 @@
             '<span class="v"><span class="tag tag--warn">' + reasonText + '</span></span></div>' +
           '<div class="info-row"><span class="k">已选类型</span><span class="v">' + typeLabel + '</span></div>' +
           '<div style="padding:12px 0 14px">' +
-            '<div class="hint" style="line-height:1.7">' +
-              '这次不算你的错，只是 AI 想让工单更准确一点。' +
-              '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。' +
-            '</div>' +
+            '<div class="hint" style="line-height:1.7">' + hintText + '</div>' +
           '</div>' +
         '</div>' +
 
@@ -1650,13 +1666,37 @@
       ? '<img src="' + t.photo + '" alt="现场照片">'
       : (local.photoSrc ? '<img src="' + local.photoSrc + '" alt="现场照片">' : D.photoSVG(local.photo || 'scenery'));
 
-    const timeline = (t.timeline || []);
+    // 进度按时间正序读：提交 → 派单 → 到场 → 处置 → 办结。
+    // 每个节点带角色徽章、操作方和备注，用户能看清"卡在谁手上"。
+    const timeline = (t.timeline || []).slice().sort(function (a, b) { return a.at - b.at; });
+    const ROLE_LABEL = { user: '上报人', ai: 'AI 判定', crew: '处置班组', admin: '管理端', system: '系统' };
+
+    function gapText(ms) {
+      const m = Math.round(ms / 60000);
+      if (m < 1) return '不到 1 分钟';
+      if (m < 60) return m + ' 分钟';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + ' 小时' + (m % 60 ? ' ' + (m % 60) + ' 分钟' : '');
+      return Math.floor(h / 24) + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 小时' : '');
+    }
+
     const tlHTML = timeline.length
       ? '<div class="tl">' + timeline.map(function (e, i) {
-          return '<div class="tl-row' + (i === 0 ? ' is-first' : '') +
+          const prev = i > 0 ? timeline[i - 1].at : null;
+          const gap = prev ? (e.at - prev) : 0;
+          const role = e.role || (i === 0 ? 'user' : 'crew');
+          const last = i === timeline.length - 1;
+          return '<div class="tl-row' + (i === 0 ? ' is-first' : '') + (last ? ' is-now' : '') +
                    (e.tone === 'ok' ? ' is-ok' : '') + '">' +
-                   '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
-                   '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
+                   '<div class="tl-head">' +
+                     '<span class="tl-t">' + UI.escapeHtml(e.label) + '</span>' +
+                     '<span class="tl-role" data-role="' + role + '">' +
+                       (ROLE_LABEL[role] || '处理') + '</span>' +
+                   '</div>' +
+                   (e.by ? '<div class="tl-by">' + UI.escapeHtml(e.by) + '</div>' : '') +
+                   (e.note ? '<div class="tl-note">' + UI.escapeHtml(e.note) + '</div>' : '') +
+                   '<div class="tl-time">' + fmtTime(e.at) +
+                     (gap > 60000 ? '　距上一步 ' + gapText(gap) : '') + '</div>' +
                  '</div>';
         }).join('') + '</div>'
       : '<div class="dsl-empty">还没有流转记录</div>';
@@ -1686,7 +1726,9 @@
           '<dt>提交时间</dt><dd>' + fmtTime(t.at || local.at) + '</dd>' +
         '</dl>' +
         aiLine +
-        '<div class="dsl-h">解决流程</div>' +
+        '<div class="dsl-h">解决流程<span class="dsl-h-sub">' +
+          (paid ? '已办结' : '已用时 ' + gapText(Date.now() - (t.at || local.at || Date.now()))) +
+        '</span></div>' +
         tlHTML +
         (paid ? '' : '<div class="dsl-note">积分要等后勤到场核实并处理完才发放，' +
                      '进度有变化会在这里更新。</div>'),

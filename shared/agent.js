@@ -202,14 +202,31 @@
   var THRESH = {
     blur: 25,          // sharpScore 低于此值判为模糊
     dark: 0.10,        // 亮度低于此值判为过暗
+    blackout: 0.035,   // 低于此值不是"暗"，是镜头被挡/没开灯
     overexposed: 0.94, // 高于此值判为过曝
     flat: 0.88,        // 平坦区超过此值才怀疑是截图
-    flatEdge: 0.012    // 且边缘密度也极低，两个条件同时满足
+    flatEdge: 0.012,   // 且边缘密度也极低，两个条件同时满足
+    noEdge: 0.004,     // 边缘密度低于此值……
+    noInfoSharp: 12    // ……且清晰度也极低 = 画面里没有任何结构
   };
 
   /* ======================================================================
    * 三、闸门一：视觉质量（纯算法）
    * ==================================================================== */
+
+  /**
+   * 画质问题分两种，不能一视同仁：
+   *
+   *   hard —— 画面里根本没有东西。镜头被手指挡住、对着桌面、对着白墙、
+   *           全黑没开灯。这类图无论谁来判都不该进工单池，模型也救不回来，
+   *           因为连"这是什么"都无从谈起。
+   *   soft —— 画面里有东西，只是拍得不好。夜里路灯不亮本来就是暗的，
+   *           雾气、逆光、手抖都会压低清晰度。这类只提示，不拦死。
+   *
+   * 之前所有画质原因都被当成 soft 一律放行，结果是一片均匀的糊图
+   * 也能进工单池 —— 闸门一等于不存在。
+   */
+  var HARD_REASONS = { blank: 1, blackout: 1, overexposed: 1, flat: 1 };
 
   function gateVision(m) {
     var issues = [];
@@ -217,17 +234,24 @@
     var message = '';
 
     if (!m.ok) {
-      return { id: 'vision', pass: true, degraded: true, reason: null, message: '图片未能解析，已放行待人工复核' };
+      return { id: 'vision', pass: true, degraded: true, hard: false, reason: null, message: '图片未能解析，已放行待人工复核' };
     }
 
-    if (m.sharpScore < THRESH.blur) {
-      reason = 'blur';
-      message = '这张照片有点糊，手抖了一下吧？';
-      issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
-    } else if (m.brightness < THRESH.dark) {
-      reason = 'dark';
-      message = '照片太暗了，看不太清设施本身';
-      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
+    // 整张图几乎没有超过阈值的梯度，清晰度也贴着地板 —— 这不是"糊"，
+    // 这是没拍到任何有结构的物体。实测中挡住镜头、拍桌面、拍纯色墙
+    // 都会落在这个区间（edgeDensity 0.000、sharpScore 个位数）。
+    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp)
+      || (m.flatRatio >= 0.97 && m.edgeDensity < 0.008);
+
+    if (noContent) {
+      reason = 'blank';
+      message = '这张照片里看不出任何东西，是不是挡住镜头了？';
+      issues.push('边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%，清晰度 ' + m.sharpScore +
+        '/100，画面没有可辨识的结构');
+    } else if (m.brightness < THRESH.blackout) {
+      reason = 'blackout';
+      message = '照片基本是黑的，什么也看不见';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.blackout * 100) + '%');
     } else if (m.brightness > THRESH.overexposed) {
       reason = 'overexposed';
       message = '照片曝得太亮了，细节都没了';
@@ -236,12 +260,27 @@
       reason = 'flat';
       message = '这张不太像现场拍的，像是截图或者纯色图';
       issues.push('平坦区占比 ' + (m.flatRatio * 100).toFixed(0) + '%，边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%');
+    } else if (m.sharpScore < THRESH.blur) {
+      reason = 'blur';
+      message = '这张照片有点糊，手抖了一下吧？';
+      issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
+    } else if (m.brightness < THRESH.dark) {
+      reason = 'dark';
+      message = '照片有点暗，看不清设施本身';
+      issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
     }
+
+    // 「平坦又清晰」可能只是拍了一大片墙或者天空，未必是假图；
+    // 「平坦又模糊」才是截图/纯色图。所以 flat 的硬度要看清晰度。
+    var hard = !!(reason && HARD_REASONS[reason]);
+    if (reason === 'flat') hard = m.sharpScore < THRESH.blur;
 
     return {
       id: 'vision',
       pass: !reason,
       reason: reason,
+      // 有东西但没拍好 = soft；压根没拍到东西 = hard
+      hard: hard,
       message: message,
       metrics: m,
       issues: issues
@@ -592,8 +631,9 @@
         var vision = gateVision(metrics);
         var local = { metrics: metrics, desc: ctx.desc, type: ctx.type };
 
-        // 视觉闸门已经拦下，没必要再花钱调模型
-        if (!vision.pass) {
+        // 硬伤（画面里没东西）直接拦，没必要再花钱调模型；
+        // 软伤（拍糊了、偏暗）继续往下走，让模型看一眼再决定。
+        if (!vision.pass && vision.hard) {
           return finish({
             pass: false,
             gates: [vision],
@@ -607,6 +647,14 @@
             latency: Date.now() - t0
           });
         }
+
+        // 画质存疑但还没到硬拦的程度：最终结论由模型/规则决定，
+        // 但要把这层疑虑带到工单上，后台能看见"这张是放了但画质不踏实"。
+        var qualityHint = vision.pass ? null : {
+          reason: vision.reason,
+          message: vision.message,
+          issues: vision.issues
+        };
 
         var semanticPromise;
         if (status.mode === 'deepseek') {
@@ -633,10 +681,12 @@
              —— 没图（样例插画、或者关闭了视觉）：它只是拿几个统计数字在猜。
                 拿数字猜"这图太平淡"，会把夜里的路灯实拍全部毙掉，
                 而路灯问题恰好都发生在夜里。这种情况一律降级成建议。 */
-          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, 'non-facility': 1 };
+          var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, blank: 1, blackout: 1, 'non-facility': 1 };
           var soft = false;
-          if (sem.pass === false && VISUAL_REASONS[sem.reason] && vision.pass) {
-            soft = !sem.vision;
+          // 只有"模型没看到图、纯凭统计量下的结论"才降级成建议。
+          // 模型真看了图还是说不行，那就听它的。
+          if (sem.pass === false && VISUAL_REASONS[sem.reason] && !sem.vision) {
+            soft = true;
           }
 
           /* 类型错配在有图时同理。没图时还要本地规则背书：
@@ -648,8 +698,12 @@
             if (localSem.pass) soft = true;
           }
 
+          var passed = soft ? true : sem.pass;
+          // 放行了，但画质这层疑虑还在 → 进人工复核队列，不能当没事发生
+          var review = !!qualityHint || !!sem.degraded;
+
           return finish({
-            pass: soft ? true : sem.pass,
+            pass: passed,
             gates: gates,
             reason: soft ? null : sem.reason,
             message: sem.message,
@@ -667,6 +721,8 @@
             sawImage: !!sem.vision,
             metrics: metrics,
             degraded: !!sem.degraded,
+            qualityHint: qualityHint,
+            review: passed && review,
             latency: Date.now() - t0
           });
         });
@@ -723,6 +779,7 @@
     THRESH: THRESH,
     SYSTEM_PROMPT: SYSTEM_PROMPT,
     /** 暴露给测试用 */
+    _gateVision: gateVision,
     _gateSemanticRules: gateSemanticRules,
     _safeParseJSON: safeParseJSON
   };

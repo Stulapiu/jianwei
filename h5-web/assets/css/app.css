@@ -1699,9 +1699,42 @@
   border: 2px solid var(--line);
 }
 .tl-row.is-first::before { border-color: var(--brand); background: var(--brand); }
+.tl-row.is-now::before {
+  border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: 0 0 0 3px rgba(58, 110, 165, .16);
+}
 .tl-row.is-ok::before { border-color: var(--ok); background: var(--ok); }
 .tl-t { font-size: 12px; line-height: 1.55; color: var(--text); }
 .tl-time { font-size: 10.5px; color: var(--text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* 详细进度：每一步都要能看出"谁做的、做了什么、为什么" */
+.tl-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-role {
+  font-size: 9.5px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.tl-role[data-role="user"] { background: rgba(58, 110, 165, .12); color: #3a6ea5; }
+.tl-role[data-role="ai"] { background: rgba(103, 86, 173, .13); color: #6756ad; }
+.tl-role[data-role="crew"] { background: rgba(201, 123, 32, .14); color: #a5671a; }
+.tl-role[data-role="admin"] { background: rgba(46, 139, 98, .13); color: #2e7d5b; }
+.tl-role[data-role="system"] { background: var(--line-2, rgba(0, 0, 0, .06)); color: var(--text-3); }
+.tl-by { font-size: 10.5px; color: var(--text-3); }
+.tl-note {
+  margin-top: 5px;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+  background: var(--line-2, rgba(0, 0, 0, .035));
+  border-radius: 8px;
+  word-break: break-word;
+}
+.tl-gap { font-size: 10px; color: var(--text-3); margin-top: 3px; }
 
 .qr-empty {
   margin: 0 20px;
@@ -2311,6 +2344,13 @@
   font-weight: 700;
   color: var(--text-2);
   letter-spacing: .02em;
+}
+.dsl-h-sub {
+  float: right;
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--text-3);
+  letter-spacing: 0;
 }
 .dsl-note {
   margin-top: 10px;

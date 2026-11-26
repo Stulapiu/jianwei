@@ -126,6 +126,16 @@
     return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
+  /** 两个节点之间隔了多久 —— 只写绝对时间看不出一单卡了几天 */
+  function fmtSpan(ms) {
+    const m = Math.round(ms / 60000);
+    if (m < 1) return '不到 1 分钟';
+    if (m < 60) return m + ' 分钟';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' 小时' + (m % 60 ? ' ' + (m % 60) + ' 分' : '');
+    return Math.floor(h / 24) + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 小时' : '');
+  }
+
   function distanceText(lng, lat) {
     const near = D.LANDMARKS.reduce(function (best, m) {
       const d = window.TileMap.distance(lng, lat, m.lng, m.lat);
@@ -983,12 +993,27 @@
           '<dt>积分</dt><dd>' + payLine + '</dd>' +
         '</dl>' +
         '<div class="tl">' +
-          (t.timeline || []).map(function (e, i) {
-            return '<div class="tl-row' + (i === 0 ? ' is-ok' : '') + '">' +
-                     '<div class="tl-t">' + UI.escapeHtml(e.label) + '</div>' +
-                     '<div class="tl-time">' + fmtTime(e.at) + '</div>' +
-                   '</div>';
-          }).join('') +
+          (function () {
+            const list = (t.timeline || []).slice().sort(function (a, b) { return a.at - b.at; });
+            const ROLE = { user: '上报人', ai: 'AI', crew: '班组', admin: '管理端', system: '系统' };
+            if (!list.length) return '<div class="empty" style="padding:14px 0">还没有流转记录</div>';
+            return list.map(function (e, i) {
+              const gap = i > 0 ? e.at - list[i - 1].at : 0;
+              const last = i === list.length - 1;
+              return '<div class="tl-row' + (last ? ' is-now' : '') +
+                       (e.tone === 'ok' ? ' is-ok' : '') + '">' +
+                '<div class="tl-head">' +
+                  '<span class="tl-t">' + UI.escapeHtml(e.label) + '</span>' +
+                  '<span class="tl-role" data-role="' + (e.role || 'crew') + '">' +
+                    (ROLE[e.role] || '处理') + '</span>' +
+                '</div>' +
+                (e.by ? '<div class="tl-by">' + UI.escapeHtml(e.by) + '</div>' : '') +
+                (e.note ? '<div class="tl-note">' + UI.escapeHtml(e.note) + '</div>' : '') +
+                '<div class="tl-time">' + fmtTime(e.at) +
+                  (gap > 60000 ? '　距上一步 ' + fmtSpan(gap) : '') + '</div>' +
+              '</div>';
+            }).join('');
+          })() +
         '</div>' +
       '</div>';
   }

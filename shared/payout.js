@@ -210,7 +210,11 @@ window.Payout = (function () {
     t.timeline = t.timeline || [];
     t.timeline.push({
       at: now,
-      label: opts.note || ('后勤已到场核实并处理完成 · ' + pts + ' 积分已到账'),
+      label: opts.note || '后勤已到场核实并处理完成',
+      note: '现场复核通过，' + pts + ' 积分已发放给上报人',
+      by: '后勤保障部 · 值班主管',
+      role: 'admin',
+      state: 'resolved',
       tone: 'ok'
     });
 

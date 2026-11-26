@@ -155,7 +155,7 @@
       var severity = D.mergedSeverity(base, people.length);
       var at = NOW - row[8] * HOUR;
 
-      return {
+      var o = {
         id: 'o' + i,
         orderNo: 'WO26' + String(1101 + i),
         type: type,
@@ -179,7 +179,106 @@
           };
         })
       };
+
+      o.timeline = seedTimeline(o);
+      return o;
     });
+  }
+
+  /**
+   * 给演示工单造一条像样的进度。
+   *
+   * 以前抽屉里只有「优先级 / 状态 / 坐标」这几行，点开等于什么都没看到。
+   * 处理进度是这套系统里最该被看见的东西：谁接的、几点到的、卡在哪一环。
+   * 所以每条演示工单都按它当前的状态倒推出一串节点。
+   */
+  function seedTimeline(o) {
+    var meta = D.type(o.type);
+    var t0 = o.createdAt;
+    var span = Math.max(NOW - t0, 60 * 1000);
+    var crew = o.dept.short + ' · ' +
+      ['李', '王', '张', '赵', '陈'][o.type.length % 5] + '师傅';
+
+    var list = [{
+      at: t0,
+      label: '上报已提交',
+      note: '描述：' + o.summary,
+      by: (o.reports[0] && o.reports[0].by ? o.reports[0].by + '同学' : '上报人'),
+      role: 'user',
+      state: 'pending',
+      tone: 'ok'
+    }, {
+      at: t0 + 2000,
+      label: 'AI 判定通过',
+      note: '画面：' + o.summary + '；与所选「' + meta.label + '」一致',
+      by: '哨兵智能体 · DeepSeek 看图判定',
+      role: 'ai',
+      state: 'pending'
+    }];
+
+    var uniqNames = [];
+    o.reports.forEach(function (r) { if (uniqNames.indexOf(r.by) < 0) uniqNames.push(r.by); });
+    if (uniqNames.length > 1) {
+      list.push({
+        at: t0 + 0.12 * HOUR * (uniqNames.length - 1),
+        label: '又有 ' + (uniqNames.length - 1) + ' 位同学上报同一处',
+        note: '紧急度 ' + o.baseSeverity + ' 星 → ' + o.severity + ' 星，已合并为一张工单',
+        by: '系统',
+        role: 'system',
+        state: 'pending'
+      });
+    }
+
+    list.push({
+      at: t0 + 0.2 * HOUR,
+      label: '已按类型自动派单',
+      note: o.dept.name + ' · 等待接单',
+      by: '系统',
+      role: 'system',
+      state: 'pending'
+    });
+
+    if (o.status === 'processing' || o.status === 'resolved') {
+      list.push({
+        at: t0 + span * 0.12,
+        label: '班组已接单',
+        note: '按 ' + D.priorityOf(o.severity).id + ' 时限要求响应',
+        by: '调度台',
+        role: 'admin',
+        state: 'processing'
+      });
+      list.push({
+        at: t0 + span * 0.25,
+        label: '已到场核实',
+        note: '确认问题属实，无需转派',
+        by: crew,
+        role: 'crew',
+        state: 'processing'
+      });
+      list.push({
+        at: t0 + span * 0.55,
+        label: '处置进行中',
+        note: o.advice,
+        by: crew,
+        role: 'crew',
+        state: 'processing'
+      });
+    }
+
+    if (o.status === 'resolved') {
+      list.push({
+        at: t0 + span * 0.96,
+        label: '处理完成，工单办结',
+        note: '现场复核通过，处置结果已归档',
+        by: '后勤保障部 · 值班主管',
+        role: 'admin',
+        state: 'resolved',
+        tone: 'ok'
+      });
+    }
+
+    list.forEach(function (e) { if (e.at > NOW) e.at = NOW; });
+    return list;
   }
 
   var ORDERS = buildOrders();
@@ -708,7 +807,10 @@
       }
 
       var statusCls = 'status-' + o.status;
-      var statusLabel = { pending: '待处理', processing: '处理中', resolved: '已完成' }[o.status];
+      var statusLabel = {
+        pending: '待处理', processing: '处理中',
+        resolved: '已完成', review: '待复核'
+      }[o.status] || '待处理';
 
       return '<tr data-id="' + o.id + '">' +
         '<td>' +
@@ -759,7 +861,7 @@
         '<td><span class="status ' + statusCls + '"><i></i>' + statusLabel + '</span></td>' +
         '<td>' +
           '<div class="ops">' +
-            (o.status === 'pending'
+            (o.status === 'pending' || o.status === 'review'
               ? '<button class="op op-primary" data-act="start" data-id="' + o.id + '">受理</button>'
               : '') +
             (o.status !== 'resolved'
@@ -818,6 +920,8 @@
 
         if (act === 'start') {
           target.status = 'processing';
+          appendProgress(target, '班组已受理', '已通知 ' + target.dept.name + ' 安排到场',
+            { by: '调度台', role: 'admin', state: 'processing' });
           renderOrders();
           renderMetrics();
           toast('已受理，已通知负责班组', 'ok');
@@ -834,6 +938,17 @@
           // 现场模式进来的单子带的是真实编码，能落到具体某个上报人头上
           pay = Payout.settle(target.orderNo, { note: '后勤已到场核实并处理完成 · 积分到账' });
           if (pay && pay.ok) target.reward = { points: pay.points, paid: true };
+        }
+
+        if (pay && pay.ok) {
+          // 结算已经往编码表里写过带积分说明的节点，这里只补内存那份
+          appendProgress(target, '处理完成，工单办结',
+            '现场复核通过，' + pay.points + ' 积分已发放给上报人',
+            { state: 'resolved', tone: 'ok', skipStore: true });
+        } else if (!pay || !pay.already) {
+          appendProgress(target, '处理完成，工单办结',
+            '现场复核通过，处置结果已归档',
+            { state: 'resolved', tone: 'ok' });
         }
 
         renderOrders();
@@ -1286,7 +1401,8 @@
       '<div class="dr-row"><span class="dr-k">坐标</span><span class="dr-v mono" style="font-size:11px">' +
         o.lat.toFixed(5) + ', ' + o.lng.toFixed(5) + '</span></div>' +
       '<div class="dr-row"><span class="dr-k">状态</span><span class="dr-v">' +
-        ({ pending: '待处理', processing: '处理中', resolved: '已完成' })[o.status] + '</span></div>' +
+        ({ pending: '待处理', processing: '处理中', resolved: '已完成', review: '待复核' })[o.status] +
+        '</span></div>' +
       '<div class="dr-row"><span class="dr-k">时效</span><span class="dr-v">' +
         '<span class="sla-chip ' + sla.tone + '">' + sla.text + '</span>' +
         '<span class="dr-dim">　' + pri.id + ' 要求 ' + sla.limitH + ' 小时内响应</span></span></div>' +
@@ -1305,6 +1421,8 @@
       (o.live ? liveSection(o) : '') +
 
       paySection(o) +
+
+      progressSection(o) +
 
       '<div class="dr-section">' +
         '<div class="dr-section-title">上报记录 · ' + o.reports.length + ' 条 / ' + uniq.length + ' 人</div>' +
@@ -1356,6 +1474,8 @@
         toast('已办结 · ' + pay.points + ' 积分已发放给上报人', 'ok');
       });
     }
+
+    bindProgress(o);
   }
 
   function closeDrawer() {
@@ -1373,7 +1493,7 @@
     var head = ['工单号', '问题类型', '位置', '负责部门', '优先级', '紧急度',
                 '反馈人数', '上报条数', '状态', '首报时间', 'AI 摘要', '处置建议', '纬度', '经度'];
 
-    var statusLabel = { pending: '待处理', processing: '处理中', resolved: '已完成' };
+    var statusLabel = { pending: '待处理', processing: '处理中', resolved: '已完成', review: '待复核' };
 
     var rows = list.map(function (o) {
       var uniq = [];
@@ -1439,7 +1559,17 @@
    * 所以不需要后端也能做到这件事。
    * ==================================================================== */
 
-  var LIVE = { on: false, seen: {}, timer: null };
+  var LIVE = {
+    on: false,
+    seen: {},
+    timer: null,
+    // 「清空」不是真删：先把当前列表整份拷进 trash，撤销时原样放回。
+    // 演示时最常出的事故就是讲完一页手一抖清了库，所以这个必须能反悔。
+    trash: null,
+    // 被清掉的编码要拦一下，否则 syncLive 两秒后从编码表把它们又捞回来，
+    // 用户会以为"清空没生效"
+    muted: {}
+  };
   var BLOCK_LOG_SEED = BLOCK_LOG.slice();
 
   function ticketToOrder(t) {
@@ -1457,7 +1587,7 @@
       lng: t.lng,
       lat: t.lat,
       dept: D.deptFor(t.type),
-      status: t.status === 'resolved' ? 'resolved' : t.status === 'processing' ? 'processing' : 'pending',
+      status: ({ resolved: 'resolved', processing: 'processing', review: 'review' })[t.status] || 'pending',
       createdAt: t.at,
       reports: [{ by: '现场', credit: 80, at: t.at, selfDup: false }],
       live: true,
@@ -1467,7 +1597,10 @@
       kind: t.kind,
       reward: t.reward || null,
       photo: t.photo || null,
-      analysis: a
+      analysis: a,
+      // 进度是这张单最有信息量的部分，漏了它抽屉里就只剩几行元数据
+      timeline: t.timeline || [],
+      desc: t.desc || ''
     };
   }
 
@@ -1497,6 +1630,8 @@
     var added = 0;
 
     fresh.forEach(function (o) {
+      // 刚被「清空」掉的单子，编码表里还在，这里要挡一下
+      if (o.code && LIVE.muted[o.code]) return;
       if (LIVE.seen[o.id]) return;
       LIVE.seen[o.id] = 1;
       // 已经在列表里的不重复加（合并上报会更新同一条编码）
@@ -1507,6 +1642,7 @@
         exist.reports = o.reports;
         exist.estPoints = o.estPoints;
         exist.reward = o.reward;
+        exist.timeline = o.timeline;
       } else {
         ORDERS.unshift(o);
         added++;
@@ -1517,7 +1653,7 @@
     ORDERS.forEach(function (o) {
       if (!o.live) return;
       var t = fresh.filter(function (x) { return x.id === o.id; })[0];
-      if (t) { o.status = t.status; o.reward = t.reward; }
+      if (t) { o.status = t.status; o.reward = t.reward; o.timeline = t.timeline; }
     });
 
     var n = ORDERS.length;
@@ -1540,6 +1676,65 @@
     renderMergeAdvice();
   }
 
+  /** 工单里全是纯数据，JSON 走一圈就是深拷贝 */
+  function cloneOrders(list) {
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  /**
+   * 演示模式下清空当前所有工单。
+   * 只清屏幕，不动 localStorage —— 用户报的单子是真数据，
+   * 演示完可能还要按编码查进度，删了就找不回来了。
+   * 所以这里做的是"从看板上摘下来"，并且随时能原样挂回去。
+   */
+  function clearOrders() {
+    if (!LIVE.on) { toast('先打开现场模式'); return; }
+
+    var n = ORDERS.length;
+    if (!n) { toast('现在本来就没有工单'); return; }
+
+    LIVE.trash = cloneOrders(ORDERS);
+    LIVE.muted = {};
+    ORDERS.forEach(function (o) { if (o.code) LIVE.muted[o.code] = 1; });
+
+    ORDERS.length = 0;
+    LIVE.seen = {};
+    state.expanded = {};
+    closeDrawer();
+
+    $('#btnLiveClear').hidden = true;
+    $('#btnLiveUndo').hidden = false;
+    $('#liveCount').textContent = '0 条';
+    renderAll();
+
+    toast('已清空 ' + n + ' 条工单，可随时撤销', 'ok');
+  }
+
+  function undoClear() {
+    if (!LIVE.trash) { toast('没有可以撤销的清空'); return; }
+
+    var restored = LIVE.trash;
+    var fresh = ORDERS.slice();     // 清空之后又现场报上来的，撤销不能把它们冲掉
+    LIVE.trash = null;
+    LIVE.muted = {};
+
+    ORDERS.length = 0;
+    restored.forEach(function (o) { ORDERS.push(o); });
+    fresh.forEach(function (o) {
+      var dup = ORDERS.filter(function (x) { return x.id === o.id; })[0];
+      if (!dup) ORDERS.unshift(o);
+    });
+    ORDERS.forEach(function (o) { LIVE.seen[o.id] = 1; });
+
+    $('#btnLiveClear').hidden = false;
+    $('#btnLiveUndo').hidden = true;
+    $('#liveCount').textContent = ORDERS.length + ' 条';
+    renderAll();
+
+    toast('已恢复 ' + restored.length + ' 条工单' +
+      (fresh.length ? '（清空后新增的 ' + fresh.length + ' 条也保留）' : ''), 'ok');
+  }
+
   function setLive(on) {
     LIVE.on = on;
 
@@ -1552,7 +1747,11 @@
       ORDERS.length = 0;
       BLOCK_LOG.length = 0;
       LIVE.seen = {};
+      LIVE.trash = null;
+      LIVE.muted = {};
       state.expanded = {};
+      if ($('#btnLiveUndo')) $('#btnLiveUndo').hidden = true;
+      if ($('#btnLiveClear')) $('#btnLiveClear').hidden = false;
 
       ORDERS.unshift.apply(ORDERS, liveOrders());
       ORDERS.forEach(function (o) { LIVE.seen[o.id] = 1; });
@@ -1568,6 +1767,10 @@
     } else {
       clearInterval(LIVE.timer);
       LIVE.timer = null;
+      LIVE.trash = null;
+      LIVE.muted = {};
+      if ($('#btnLiveUndo')) $('#btnLiveUndo').hidden = true;
+      if ($('#btnLiveClear')) $('#btnLiveClear').hidden = false;
 
       ORDERS.length = 0;
       ORDERS.unshift.apply(ORDERS, buildOrders());
@@ -1586,6 +1789,155 @@
     }
 
     if (heatMap) setTimeout(function () { heatMap.resize(); }, 60);
+  }
+
+  /**
+   * 抽屉里的「处理进度」。
+   *
+   * 这一块是给现场处理的人用的，也是给上报人看的同一份数据：
+   * 谁接的单、几点到场、卡在材料还是卡在施工窗口。以前只有一句
+   * 「处理中」，等于让上报人干等。
+   */
+  var PROGRESS_CHIPS = [
+    { label: '已到场核实', note: '已到现场，确认问题属实，无需转派' },
+    { label: '材料未到', note: '所需材料短缺，已报采购，暂不能施工' },
+    { label: '处置中', note: '正在施工/维修，预计当天完成' },
+    { label: '已修复', note: '处置完成，等待复核验收' },
+    { label: '需延期', note: '受天气或施工窗口影响，申请延期处理' },
+    { label: '已转派', note: '超出本班组职责范围，已转派相关部门' }
+  ];
+  var drChip = null;
+
+  function fmtDur(ms) {
+    var m = Math.round(ms / 60000);
+    if (m < 60) return m + ' 分钟';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' 小时' + (m % 60 ? ' ' + (m % 60) + ' 分' : '');
+    return Math.floor(h / 24) + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 小时' : '');
+  }
+
+  function progressSection(o) {
+    var list = (o.timeline || []).slice().sort(function (a, b) { return a.at - b.at; });
+    var ROLE = { user: '上报人', ai: 'AI', crew: '班组', admin: '管理端', system: '系统' };
+
+    var rows = list.length ? list.map(function (e, i) {
+      var gap = i > 0 ? e.at - list[i - 1].at : 0;
+      var last = i === list.length - 1;
+      return '<div class="dr-tl-row' + (last ? ' is-now' : '') +
+               (e.tone === 'ok' ? ' is-ok' : '') + '">' +
+        '<div class="dr-tl-head">' +
+          '<span class="dr-tl-t">' + escapeHtml(e.label) + '</span>' +
+          '<span class="dr-tl-role" data-role="' + (e.role || 'crew') + '">' +
+            (ROLE[e.role] || '处理') + '</span>' +
+        '</div>' +
+        (e.by ? '<div class="dr-tl-by">' + escapeHtml(e.by) + '</div>' : '') +
+        (e.note ? '<div class="dr-tl-note">' + escapeHtml(e.note) + '</div>' : '') +
+        '<div class="dr-tl-time">' + fmtDate(e.at) +
+          (gap > 60000 ? '　距上一步 ' + fmtDur(gap) : '') + '</div>' +
+      '</div>';
+    }).join('') : '<div class="dr-note">还没有进度记录</div>';
+
+    return '<div class="dr-section">' +
+      '<div class="dr-section-title">处理进度 · ' + list.length + ' 个节点' +
+        (o.status === 'resolved'
+          ? '<span class="dr-tl-elapse">已办结 · 历时 ' + fmtDur(NOW - o.createdAt) + '</span>'
+          : '<span class="dr-tl-elapse">已用时 ' + fmtDur(Date.now() - o.createdAt) + '</span>') +
+      '</div>' +
+      '<div class="dr-tl">' + rows + '</div>' +
+      '<div class="dr-progress">' +
+        '<div class="dr-chips">' + PROGRESS_CHIPS.map(function (c, i) {
+          return '<button class="dr-chip" data-chip="' + i + '">' + c.label + '</button>';
+        }).join('') + '</div>' +
+        '<textarea class="dr-note-input" id="drNote" rows="2" ' +
+          'placeholder="补一句现场情况。写在这里的话，上报人在手机上也能看到"></textarea>' +
+        '<button class="dr-add-btn" id="drAddNote">记一条进展</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function bindProgress(o) {
+    drChip = null;
+
+    $$('#drawerBody .dr-chip').forEach(function (b) {
+      b.addEventListener('click', function () {
+        drChip = PROGRESS_CHIPS[+b.dataset.chip] || null;
+        $$('#drawerBody .dr-chip').forEach(function (x) {
+          x.classList.toggle('on', x === b);
+        });
+        var ta = $('#drNote');
+        if (ta && !ta.value.trim()) ta.placeholder = '默认记录：' + drChip.note;
+      });
+    });
+
+    var btn = $('#drAddNote');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var ta = $('#drNote');
+      var note = ta ? ta.value.trim() : '';
+      if (!drChip && !note) { toast('先选一个动作，或者写一句进展'); return; }
+      writeProgress(o, drChip ? drChip.label : '处理进展',
+        note || (drChip ? drChip.note : ''));
+    });
+  }
+
+  /**
+   * 往工单上追加一个进度节点。
+   * 列表上的「受理」「办结」和抽屉里的「记一条进展」都走这里，
+   * 保证内存里的工单和 localStorage 里的编码表写的是同一份东西。
+   */
+  function appendProgress(o, label, note, opts) {
+    var x = opts || {};
+    var entry = {
+      at: x.at || Date.now(),
+      label: label,
+      note: note || '',
+      by: x.by || '后勤保障部 · 值班主管',
+      role: x.role || 'admin',
+      state: x.state || o.status,
+      tone: x.tone || ''
+    };
+
+    o.timeline = o.timeline || [];
+    o.timeline.push(entry);
+
+    // 现场单要写回编码表，否则手机端查进度看不到这一条。
+    // 演示单没有编码，留在内存里就够，刷新后跟着演示数据一起重建。
+    // skipStore：结算已经往编码表里写过一条（带积分说明），不要写重。
+    if (o.code && !x.skipStore) {
+      try {
+        var raw = localStorage.getItem('jw.codes.v2');
+        var codes = raw ? JSON.parse(raw) : {};
+        if (codes[o.code]) {
+          codes[o.code].timeline = codes[o.code].timeline || [];
+          codes[o.code].timeline.push(entry);
+          localStorage.setItem('jw.codes.v2', JSON.stringify(codes));
+        }
+      } catch (e) { /* 存不进去也不影响演示 */ }
+    }
+    return entry;
+  }
+
+  function writeProgress(o, label, note) {
+    // 记进展本身就意味着"有人接管了"，把待处理/待复核推到处理中
+    if (o.status === 'pending' || o.status === 'review') {
+      o.status = 'processing';
+      if (o.code) {
+        try {
+          var raw = localStorage.getItem('jw.codes.v2');
+          var codes = raw ? JSON.parse(raw) : {};
+          if (codes[o.code]) {
+            codes[o.code].status = 'processing';
+            localStorage.setItem('jw.codes.v2', JSON.stringify(codes));
+          }
+        } catch (e) { /* 忽略 */ }
+      }
+    }
+
+    appendProgress(o, label, note);
+    openDrawer(o);
+    renderOrders();
+    renderMetrics();
+    toast('已记录：' + label, 'ok');
   }
 
   /**
@@ -1655,6 +2007,17 @@
       ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
       : '本地规则引擎';
 
+    var hin = a.qualityHint || null;
+    var reviewTag = (a.review || a.soft)
+      ? '<div class="dr-note" style="margin-top:8px;background:rgba(240,180,60,.12);' +
+        'border:1px solid rgba(240,180,60,.28);color:#8a5a00">' +
+        '<b>画质存疑 · 已放行待人工复核</b>' +
+        (hin ? '<br>' + escapeHtml(hin.message || '') +
+          (hin.issues && hin.issues.length ? '（' + escapeHtml(hin.issues[0]) + '）' : '') : '') +
+        '<br>到场先确认现场是否真有这一处，对不上就直接驳回，不要让这张单进工单池。' +
+        '</div>'
+      : '';
+
     var LABEL = {
       sharpness: '清晰度',
       brightness: '亮度',
@@ -1676,8 +2039,8 @@
       (o.photo ? '<div class="dr-shot"><img src="' + o.photo + '" alt="现场照片"></div>' : '') +
       (o.summary ? '<div class="dr-note" style="margin-top:10px">“' + escapeHtml(o.summary) + '”</div>' : '') +
       '<div class="dr-row" style="margin-top:10px"><span class="dr-k">判定来源</span>' +
-        '<span class="dr-v">' + src +
-        (a.soft ? '（画质仅提示）' : '') + '</span></div>' +
+        '<span class="dr-v">' + src + '</span></div>' +
+      reviewTag +
       (a.seen
         ? '<div class="dr-seen"><span class="dr-seen-k">模型看到的</span>' +
           escapeHtml(a.seen) + '</div>'
@@ -1712,6 +2075,8 @@
 
     $('#btnLive').addEventListener('click', function () { setLive(!LIVE.on); });
     $('#btnLiveExit').addEventListener('click', function () { setLive(false); });
+    $('#btnLiveClear').addEventListener('click', clearOrders);
+    $('#btnLiveUndo').addEventListener('click', undoClear);
 
     // 热力图筛选
     $$('#heatFilter .seg-btn').forEach(function (b) {
