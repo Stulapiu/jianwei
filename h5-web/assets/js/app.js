@@ -2878,6 +2878,10 @@
               (last.verdict.source === 'deepseek'
                 ? 'DeepSeek 视觉'
                 : (last.verdict.stage === 'local' ? '没有进入这一关（本地已经拦下）' : '没有判定（AI 未连接）')) + '</div>' +
+            (v.promptTokens
+              ? '<div class="dbg-line">画面凭证：这次请求的上游 token 是 ' + v.promptTokens +
+                '（纯文字约 540，多出来的是它真看进去的画面）</div>'
+              : '') +
             '<div class="dbg-line">用户选的类型：' + typeName(last.typeIn) +
               (last.verdict.typeAdjusted
                 ? '　→　改成：' + typeName(last.verdict.type) + '（点错不驳回，直接改）'

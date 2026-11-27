@@ -2291,6 +2291,12 @@
           '<span class="dr-rv-v">' + escapeHtml(a.seen) + '</span></div>'
         : '') +
 
+      (a.promptTokens
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">画面凭证</span>' +
+          '<span class="dr-rv-v">图片 token ' + a.promptTokens +
+          '（纯文字约 540，多出来的是它真看进去的画面）</span></div>'
+        : '') +
+
       (a.typeAdjusted && typeFrom
         ? '<div class="dr-rv-row"><span class="dr-rv-k">类型修正</span>' +
           '<span class="dr-rv-v">用户点的是「' + escapeHtml(typeFrom) + '」，已按内容改为「' +

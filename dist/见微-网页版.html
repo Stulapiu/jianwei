@@ -1545,7 +1545,7 @@ textarea::placeholder { color: #B6C2C0; }
 .cfm-cancel { display: block; width: 100%; margin-top: 6px; border: 0; background: none; color: var(--text-3); font-size: 12px; cursor: pointer; }
 
 </style>
-<!-- 单文件构建 · 2026-11-27 04:18:58 · CSS×2 JS×11 -->
+<!-- 单文件构建 · 2026-11-27 04:53:44 · CSS×2 JS×11 -->
 </head>
 <body>
 
@@ -4359,7 +4359,10 @@ window.Auth = (function () {
     // 整张图几乎没有超过阈值的梯度，清晰度也贴着地板 —— 这不是"糊"，
     // 这是没拍到任何有结构的物体。实测中挡住镜头、拍桌面、拍纯色墙
     // 都会落在这个区间（edgeDensity 0.000、sharpScore 个位数）。
-    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp)
+    // 注意第三个条件：整张图几乎全平（>= 0.95）才算"没拍到东西"。
+    // 一张糊掉的街景 flatRatio 只有 0.88，它其实是"拍糊了"，不是"对着白墙"，
+    // 该给的提示是"重拍"，不是"你挡住镜头了"。
+    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp && m.flatRatio >= 0.95)
       || (m.flatRatio >= 0.97 && m.edgeDensity < 0.008);
 
     if (noContent) {
@@ -4409,12 +4412,21 @@ window.Auth = (function () {
    * 拿它兜底只会让系统在没有看图的情况下也显得"分析过了"。
    * ==================================================================== */
 
+  /* 判定请求里「图片真的进去了」的 token 下限。
+   * 纯文本 prompt 约 540 tokens；带一张图会多出 900-1100。取 900 作门槛，
+   * 低于它说明图被上游丢掉或压根没拼进请求 —— 那种情况模型是瞎猜的。 */
+  var VISION_TOKEN_FLOOR = 900;
+
   var SYSTEM_PROMPT = [
     '你是「见微」系统的上报分析员。你的任务不是驳回，而是把一条粗糙的上报整理成一张准确的工单。',
     '',
-    '你会随消息收到上报人拍的原图（若消息里没有图，说明这次只有文字，按文字判断）。',
+    '消息里可能附有上报人拍的原图，也可能没有（有些问题确实拍不了照）。',
     '有图时以画面为准：先看图，再看文字。文字只是参考——很多人写不全，但照片不会撒谎。',
     '如果附图画的是示意图/插画而不是实拍，不要因为"这不是照片"就驳回，按画面里表现的内容判断。',
+    '两种情况要分清：',
+    '  - 消息里压根没有图片：这是纯文字上报，按文字判断，不要因为没图就驳回。',
+    '  - 消息里带着图片字段、你却看不到画面：必须返回 pass=false、reason="no-vision"、seen="未收到图片"，',
+    '    绝对不许根据文字描述去想象画面——编出来的"画面描述"会让整条工单失去可信度。',
     '同时会给出一组程序测量指标（同一张图算出来的），用来印证你的观察，不是让你复述数字：',
     '  sharpScore  0-100，清晰度（拉普拉斯方差归一化）。低于 30 基本是糊的。',
     '  brightness  0-1，平均亮度。低于 0.14 是黑图或夜间无光，高于 0.93 是过曝。',
@@ -4442,6 +4454,7 @@ window.Auth = (function () {
     '',
     '同时给出：',
     '  seen      40 字以内，只写画面上实际看到的东西和位置关系（例如「夜间路面正中一处积水，反光，旁边是路缘石」）。',
+    '            必须点出画面里至少两个具体物体；写不出具体物体，就说明你没看到图，按 no-vision 处理。',
     '            这一项用于核对是否真的看了图：不要写推断，不要写"可能""似乎"，不要复述用户描述。',
     '  severity  1-5 的紧急度整数。判断依据是「对人身安全的威胁程度」和「影响范围」，不是用户有多着急。',
     '            5 = 可能直接伤人的（井盖缺失、电线外露、护栏脱落）；',
@@ -4460,7 +4473,7 @@ window.Auth = (function () {
     '严格只输出 JSON，不要 markdown 代码块，不要任何解释文字。字段：',
     '{',
     '  "pass": true|false,',
-    '  "reason": null|"blank"|"blackout"|"blur"|"overexposed"|"non-facility",',
+    '  "reason": null|"blank"|"blackout"|"blur"|"overexposed"|"non-facility"|"no-vision",',
     '  "seen": "40 字内，画面上实际看到的东西",',
     '  "type": "safety|lighting|road|water|facility|sanitation|green|traffic|network|other",',
     '  "desc": "40 字内的一句话描述，按画面写；用户写得对就沿用他的原话",',
@@ -4634,6 +4647,11 @@ window.Auth = (function () {
           ? j.choices[0].message.content : '';
         var parsed = safeParseJSON(raw);
         if (!parsed) throw new Error('模型返回的不是合法 JSON');
+        /* 「图到底进没进去」不能靠我们自己说，要看上游给的账。
+         * 实测：同一段 prompt 带 900x1200 的图 prompt_tokens≈1542，纯文本≈542。
+         * 图片被上游丢掉/裁掉时，这个数会落回纯文本量级 —— 那就是没看到图。 */
+        var pt = (j.usage && j.usage.prompt_tokens) || 0;
+        var imageArrived = hasImage && pt >= VISION_TOKEN_FLOOR;
         return {
           id: 'semantic',
           pass: parsed.pass !== false,
@@ -4651,7 +4669,9 @@ window.Auth = (function () {
           desc: (parsed.desc || '').trim(),
           conflict: !!parsed.conflict,
           conflictNote: parsed.conflictNote || '',
-          vision: hasImage,
+          // 真的看到了图：既发了图，上游也确实为图记了账
+          vision: imageArrived,
+          promptTokens: pt,
           source: 'deepseek',
           latency: Date.now() - t0,
           raw: raw
@@ -4968,13 +4988,28 @@ window.Auth = (function () {
       }
 
       return judgeByDeepSeek(ctx, cfg).then(function (sem) {
-        // 纯文字的判定，模型看不到画面，它说的"看不清"一律不算数
-        if (!ctx.image && sem.pass === false &&
-            /blur|dark|exposed|blank|blackout|flat/.test(sem.reason || '')) {
-          sem.pass = true;
-          sem.reason = null;
-          sem.message = '';
-          sem.detail = '没有照片，画质类判断不适用';
+        /* 有照片、图却没进模型 —— 这一次的结论是模型照着文字猜的，
+         * 不能当判定结果用。明确失败，让用户重试，绝不放行。
+         * 以前的写法是「画质类理由降级成提示、照样通过」，那等于给编造开了后门：
+         * 一张学习记录表格配上"路灯不亮"，模型能顺着描述写出一段夜景描述，
+         * 后台还会显示成"AI 已看过"。 */
+        if (ctx.image && !sem.vision) {
+          return finish({
+            pass: false,
+            stage: 'ai',
+            aiFailed: true,
+            gates: env.vision && !env.vision.noPhoto ? [env.vision] : [],
+            reason: 'no-vision',
+            message: '图片没能送进模型，这条还没有分析',
+            detail: '原图已生成，但模型这次没有收到画面（上游未计入图片 token）。重试一次即可。',
+            severity: 0,
+            source: 'none',
+            seen: '',
+            sawImage: false,
+            promptTokens: sem.promptTokens || 0,
+            metrics: env.metrics || null,
+            latency: Date.now() - t0
+          });
         }
         return finish(compose(ctx, sem, {
           metrics: env.metrics || null,
@@ -5021,14 +5056,11 @@ window.Auth = (function () {
         sem.reason = null;
       }
 
-      // 模型没看到图时，画质类结论降级成提示（拿统计量猜"这图太平"会误杀夜景）
-      var VISUAL_REASONS = { blur: 1, dark: 1, overexposed: 1, flat: 1, blank: 1, blackout: 1, 'non-facility': 1 };
-      var soft = false;
-      if (sem.pass === false && VISUAL_REASONS[sem.reason] && !sem.vision) {
-        soft = true;
-      }
-
-      var passed = soft ? true : sem.pass;
+      /* 模型的结论原样生效，不再做任何"降级成通过"的处理。
+       * 以前这里有个 soft 分支：模型判不通过、理由又是画质类、而它没看到图，
+       * 就把结论翻成通过 —— 那正好是最该拦下的一类（模型只能照文字猜）。
+       * 两关串联之后不存在"猜"这件事：本地不过不送模型，送了就必须真看到图。 */
+      var passed = sem.pass;
 
       // ---- 类型自动纠正 ----
       // 只认模型给的 type —— 点错分类不是用户的错，更不该成为驳回理由。
@@ -5060,12 +5092,10 @@ window.Auth = (function () {
       return {
         pass: passed,
         gates: [vision, sem],
-        reason: soft ? null : sem.reason,
+        reason: sem.reason,
         message: sem.message,
-        detail: soft
-          ? '模型没拿到原图，只凭统计量认为画质偏弱；本地指标判定通过，已按通过处理'
-          : sem.detail,
-        softHint: soft ? sem.message : null,
+        detail: sem.detail,
+        softHint: null,
 
         // 类型：可能被模型改过
         type: finalType,
@@ -5084,6 +5114,8 @@ window.Auth = (function () {
         advice: sem.advice || '',
         severity: severity,
         source: sem.source || 'deepseek',
+        // 上游为这次请求记的图片 token —— 后台可以据此证明"图真的进去了"
+        promptTokens: sem.promptTokens || 0,
         // 模型自述的"看到了什么" —— 后台抽屉里展示，证明这次是真看了图
         seen: sem.seen || '',
         sawImage: !!sem.vision,
@@ -6321,6 +6353,7 @@ window.Auth = (function () {
     state.desc = '';
     state.type = '';
     state.preview = null;
+    state.photoGate = null;
     var d = $('#descInput');
     if (d) { d.value = ''; }
     var c = $('#descCount');

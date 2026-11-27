@@ -2332,7 +2332,7 @@ table.orders tbody tr:last-child td { border-bottom: none; }
 .merge-sug.is-loading .merge-sug-desc { color: var(--text-3); }
 
 </style>
-<!-- 单文件构建 · 2026-11-27 04:18:58 · CSS×2 JS×5 -->
+<!-- 单文件构建 · 2026-11-27 04:53:44 · CSS×2 JS×5 -->
 </head>
 <body>
 
@@ -6420,6 +6420,12 @@ window.Payout = (function () {
       (a.seen
         ? '<div class="dr-rv-row"><span class="dr-rv-k">AI 看到</span>' +
           '<span class="dr-rv-v">' + escapeHtml(a.seen) + '</span></div>'
+        : '') +
+
+      (a.promptTokens
+        ? '<div class="dr-rv-row"><span class="dr-rv-k">画面凭证</span>' +
+          '<span class="dr-rv-v">图片 token ' + a.promptTokens +
+          '（纯文字约 540，多出来的是它真看进去的画面）</span></div>'
         : '') +
 
       (a.typeAdjusted && typeFrom
