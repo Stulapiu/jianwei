@@ -4,7 +4,7 @@ import asyncio
 from playwright.async_api import async_playwright
 
 URL = 'http://127.0.0.1:8811/web/index.html'
-IMG = 'D:/workbuudy/01-项目/见微/tools/fixture-pothole.png'
+IMG = 'D:/workbuudy/01-项目/竞赛/见微/tools/fixture-pothole.png'
 
 
 async def toasts(pg):
