@@ -3,17 +3,23 @@
  * --------------------------------------------------------------------------
  * 职责：在一条上报进入数据库之前，判断它值不值得占用管理端的处理资源。
  *
- * 拆成两道闸门，而不是「一个模型全包」：
- *   闸门一 · 视觉质量   —— 用真实图像算法算，不调模型
- *   闸门二 · 内容与归类 —— 交给 DeepSeek（看图 + 文字）
+ * 流程是「先本地、后模型」，不是二选一：
+ *   第一关 · 本地准入 —— 用真实图像算法算清晰度/亮度/结构，不调模型
+ *   第二关 · 内容判定 —— 必须交给 DeepSeek（看图 + 文字）
  *
- * 闸门一用确定性算法，是因为「这张图糊没糊」「画面里有没有结构」本来就该
- * 用拉普拉斯方差这类指标判断：零成本、零延迟、可复现，比模型更稳。
+ * 为什么本地放前面：
+ *   糊到看不清、全黑、纯色截图这类图，模型也救不回来，送去只会白花钱、
+ *   还多等好几秒。本地几十毫秒就能判，判不过直接让用户重拍，不占用模型。
  *
- * 闸门二从「质检」改成了「整理」：
- *   以前类型选错直接驳回，用户被拒得莫名其妙；
- *   现在点错分类由模型自己改，只有当画面和描述真的对不上（说的和拍的
- *   是两件事）时，才把改好的版本带回去让用户确认一次。
+ * 为什么模型是必经路径：
+ *   本地指标只回答「清不清晰」，回答不了「画面里是不是一处设施」。一张写满
+ *   字的作业本，在这四项指标上全部健康 —— 这就是之前放行它的原因。
+ *   所以只要本地过了，就必须让模型真看图；模型没连上就明说没连上，
+ *   绝不拿规则模板冒充 AI，也不生成一段和照片对不上的「分析」。
+ *
+ * 模型这一关做的是「整理」而不是「质检」：
+ *   类型点错由模型自己改；只有画面和描述真的对不上时，才把改好的版本
+ *   带回去让用户确认一次。
  * ========================================================================== */
 
 (function (global) {
@@ -213,32 +219,35 @@
    * ==================================================================== */
 
   /**
-   * 画质问题分两种，不能一视同仁：
+   * 本地准入是「过 / 不过」的开关，不再分软硬两档。
    *
-   *   hard —— 画面里根本没有东西。镜头被手指挡住、对着桌面、对着白墙、
-   *           全黑没开灯。这类图无论谁来判都不该进工单池，模型也救不回来，
-   *           因为连"这是什么"都无从谈起。
-   *   soft —— 画面里有东西，只是拍得不好。夜里路灯不亮本来就是暗的，
-   *           雾气、逆光、手抖都会压低清晰度。这类只提示，不拦死。
+   * 以前分 soft / hard：糊图、暗图只提示，照样送去模型。结果是同一张糊到
+   * 看不清的图，模型在模糊的画面里猜一个答案，用户还以为系统看清楚了。
+   * 现在统一成：本地过不了就重拍，不往下走 —— 不猜、不硬着头皮分析。
    *
-   * 之前所有画质原因都被当成 soft 一律放行，结果是一片均匀的糊图
-   * 也能进工单池 —— 闸门一等于不存在。
+   * 唯一放宽的是 dark 的阈值（0.10，而不是白天的 0.14）：夜里路灯坏了
+   * 本来就该是暗的，这条线只拦「真的什么都看不见」，不拦夜景。
    */
-  var HARD_REASONS = { blank: 1, blackout: 1, overexposed: 1, flat: 1 };
-
   function gateVision(m) {
     var issues = [];
     var reason = null;
     var message = '';
 
-    if (!m.ok) {
-      return { id: 'vision', pass: true, degraded: true, hard: false, reason: null, message: '图片未能解析，已放行待人工复核' };
+    if (!m || !m.ok) {
+      return {
+        id: 'vision', pass: false, hard: true, reason: 'unreadable',
+        message: '这张图没读出来，换一张试试',
+        issues: ['图片解码失败'], metrics: m || null
+      };
     }
 
     // 整张图几乎没有超过阈值的梯度，清晰度也贴着地板 —— 这不是"糊"，
     // 这是没拍到任何有结构的物体。实测中挡住镜头、拍桌面、拍纯色墙
     // 都会落在这个区间（edgeDensity 0.000、sharpScore 个位数）。
-    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp)
+    // 注意第三个条件：整张图几乎全平（>= 0.95）才算"没拍到东西"。
+    // 一张糊掉的街景 flatRatio 只有 0.88，它其实是"拍糊了"，不是"对着白墙"，
+    // 该给的提示是"重拍"，不是"你挡住镜头了"。
+    var noContent = (m.edgeDensity < THRESH.noEdge && m.sharpScore < THRESH.noInfoSharp && m.flatRatio >= 0.95)
       || (m.flatRatio >= 0.97 && m.edgeDensity < 0.008);
 
     if (noContent) {
@@ -260,25 +269,19 @@
       issues.push('平坦区占比 ' + (m.flatRatio * 100).toFixed(0) + '%，边缘密度 ' + (m.edgeDensity * 100).toFixed(1) + '%');
     } else if (m.sharpScore < THRESH.blur) {
       reason = 'blur';
-      message = '这张照片有点糊，手抖了一下吧？';
+      message = '这张照片太糊了，手别抖，对焦到设施上再拍一张';
       issues.push('清晰度 ' + m.sharpScore + '/100，低于阈值 ' + THRESH.blur);
     } else if (m.brightness < THRESH.dark) {
       reason = 'dark';
-      message = '照片有点暗，看不清设施本身';
+      message = '太暗了，开个灯或者打开闪光灯再拍一张';
       issues.push('平均亮度 ' + (m.brightness * 100).toFixed(0) + '%，低于 ' + (THRESH.dark * 100) + '%');
     }
-
-    // 「平坦又清晰」可能只是拍了一大片墙或者天空，未必是假图；
-    // 「平坦又模糊」才是截图/纯色图。所以 flat 的硬度要看清晰度。
-    var hard = !!(reason && HARD_REASONS[reason]);
-    if (reason === 'flat') hard = m.sharpScore < THRESH.blur;
 
     return {
       id: 'vision',
       pass: !reason,
       reason: reason,
-      // 有东西但没拍好 = soft；压根没拍到东西 = hard
-      hard: hard,
+      hard: !!reason,
       message: message,
       metrics: m,
       issues: issues
@@ -286,93 +289,12 @@
   }
 
   /* ======================================================================
-   * 四、闸门二：语义一致性（本地规则版，离线兜底）
-   * ==================================================================== */
-
-  /**
-   * 关键词 → 它究竟属于哪一类。用户选错了，就在这里现形。
-   *
-   * also 是「同样说得通」的类型。一个东西往往跨两类：井盖缺失既是设施损坏，
-   * 更是安全隐患；护栏松动既算设施也算安全。只写单一归属会导致大量误拦 ——
-   * 用户选的完全合理，系统却说他选错了，这比不拦更伤信任。
-   */
-  var SEMANTIC_RULES = [
-    { words: ['路灯', '灯不亮', '照明', '灯管', '灯泡', '灯罩', '频闪', '闪烁'],
-      belongs: 'lighting', also: [] },
-    { words: ['垃圾', '满溢', '垃圾桶', '异味', '臭味', '发臭', '污渍', '小广告', '脏乱'],
-      belongs: 'sanitation', also: [] },
-    { words: ['漏水', '积水', '水管', '下水', '返味', '直饮水', '喷水', '渗水', '排水'],
-      belongs: 'water', also: ['facility'] },
-    { words: ['护栏', '扶手', '座椅', '台阶', '门禁', '玻璃', '断裂', '松动', '损坏', '变形'],
-      belongs: 'facility', also: ['safety'] },
-    { words: ['漏电', '电线', '外露', '倒塌', '坍塌', '围墙', '裂缝', '塌陷', '下沉', '井盖', '危险'],
-      belongs: 'safety', also: ['facility', 'road'] },
-    { words: ['坑洼', '地砖', '路面', '柏油', '减速带', '马路牙', '塌方'],
-      belongs: 'road', also: ['safety'] },
-    { words: ['树枝', '树倒', '倒伏', '草坪', '绿化', '花坛', '落叶'],
-      belongs: 'green', also: [] },
-    { words: ['停车', '乱停', '闸机', '占道', '单车', '电动车', '违停'],
-      belongs: 'traffic', also: [] },
-    { words: ['网络', '断网', '信号', '广播', '监控', '摄像头', '弱电', '网线'],
-      belongs: 'network', also: [] }
-  ];
-
-  var NON_FACILITY_WORDS = ['自拍', '风景', '随手拍', '截图', '网图', '表情包', '打卡', '天空', '夕阳', '好看'];
-
-  function gateSemanticRules(ctx) {
-    var desc = (ctx.desc || '').trim();
-    var picked = ctx.type;
-    var metrics = ctx.metrics || {};
-
-    // 1) 描述里明确写了「这不是设施」
-    for (var i = 0; i < NON_FACILITY_WORDS.length; i++) {
-      if (desc.indexOf(NON_FACILITY_WORDS[i]) >= 0) {
-        return {
-          id: 'semantic', pass: false, reason: 'non-facility',
-          message: '这张更像' + NON_FACILITY_WORDS[i] + '，没找到要报的设施',
-          detail: '描述里提到了「' + NON_FACILITY_WORDS[i] + '」'
-        };
-      }
-    }
-
-    // 2) 「是不是设施」不再靠色彩分布自动判定。
-    //    试过用蓝绿占比识别风景照，但夜里路灯的主导色同样是蓝的，
-    //    误伤比命中多。这类判断交给描述文本，以及 DeepSeek 综合指标去判断。
-
-    // 3) 描述与所选类型冲突
-    if (desc) {
-      for (var j = 0; j < SEMANTIC_RULES.length; j++) {
-        var rule = SEMANTIC_RULES[j];
-        var hit = null;
-        for (var k = 0; k < rule.words.length; k++) {
-          if (desc.indexOf(rule.words[k]) >= 0) { hit = rule.words[k]; break; }
-        }
-        var acceptable = rule.belongs === picked ||
-          (rule.also && rule.also.indexOf(picked) >= 0);
-        if (hit && !acceptable) {
-          // 「其他」不参与冲突判定，用户本来就没选具体类
-          if (picked === 'other') break;
-          return {
-            id: 'semantic', pass: false, reason: 'mismatch',
-            message: '你写的内容更像「' + (global.Domain ? Domain.type(rule.belongs).label : rule.belongs) + '」类问题',
-            detail: '描述里出现了「' + hit + '」，与所选的「' +
-              (global.Domain ? Domain.type(picked).label : picked) + '」不一致',
-            suggestType: rule.belongs
-          };
-        }
-      }
-    }
-
-    // 4) 没描述也没问题 —— 通过
-    return {
-      id: 'semantic', pass: true, reason: null,
-      message: desc ? '描述和所选类型一致' : '没有描述，按图片判断',
-      detail: ''
-    };
-  }
-
-  /* ======================================================================
-   * 五、闸门二：语义一致性（DeepSeek 版）
+   * 四、第二关：内容判定（DeepSeek）
+   * --------------------------------------------------------------------
+   * 这里没有「关键词猜类型」的本地版了。
+   * 原因很简单：词表能猜中「井盖」，猜不中「一个黑洞洞的方坑」；
+   * 能认出「路灯」两个字，认不出照片里那根杆子就是路灯。
+   * 拿它兜底只会让系统在没有看图的情况下也显得"分析过了"。
    * ==================================================================== */
 
   var SYSTEM_PROMPT = [
@@ -380,6 +302,7 @@
     '',
     '你会随消息收到上报人拍的原图（若消息里没有图，说明这次只有文字，按文字判断）。',
     '有图时以画面为准：先看图，再看文字。文字只是参考——很多人写不全，但照片不会撒谎。',
+    '如果附图画的是示意图/插画而不是实拍，不要因为"这不是照片"就驳回，按画面里表现的内容判断。',
     '同时会给出一组程序测量指标（同一张图算出来的），用来印证你的观察，不是让你复述数字：',
     '  sharpScore  0-100，清晰度（拉普拉斯方差归一化）。低于 30 基本是糊的。',
     '  brightness  0-1，平均亮度。低于 0.14 是黑图或夜间无光，高于 0.93 是过曝。',
@@ -492,7 +415,9 @@
     var typeLabel = global.Domain ? Domain.type(ctx.type).label : ctx.type;
     var lines = [
       o.hasImage
-        ? '【图片】消息里附了原图一张，请直接看画面。'
+        ? (ctx.demo
+            ? '【图片】消息里附了一张演示用的示意图，请按画面表现的内容判断，不要因为不是实拍就驳回。'
+            : '【图片】消息里附了原图一张，请直接看画面。')
         : '【图片】本条没有原图（这类问题常常拍不了照），只能依据文字判断，不要因为没图就驳回。',
       '',
       '【上报内容】',
@@ -722,7 +647,7 @@
       timeout: opts.timeout || 12000
     };
 
-    var status = { mode: 'rules', online: false, vision: false, lastError: '', checkedAt: 0 };
+    var status = { mode: 'offline', online: false, vision: false, lastError: '', checkedAt: 0 };
 
     /* ----------------------------------------------------------------
      * 判定过程留档
@@ -757,11 +682,12 @@
       } catch (e) { return []; }
     }
 
-    /** 探测代理是否活着。活着就用真模型，否则回落到本地规则。 */
+    /** 探测代理是否活着。探不到就如实标记离线 —— 没有"回落到规则"这一步。 */
     function probe() {
       if (cfg.mode === 'rules') {
-        status.mode = 'rules';
+        status.mode = 'offline';
         status.online = false;
+        status.lastError = '已关闭模型调用（mode: rules）';
         return Promise.resolve(status);
       }
       var base = cfg.endpoint.replace(/\/v1\/?$/, '');
@@ -773,36 +699,47 @@
         .then(function (j) {
           if (timer) clearTimeout(timer);
           status.online = !!(j && j.ok);
-          status.mode = status.online ? 'deepseek' : 'rules';
+          status.mode = status.online ? 'deepseek' : 'offline';
           status.model = (j && j.model) || cfg.model;
           status.hasKey = !!(j && j.hasKey);
           status.vision = !!(j && j.vision);
-          status.lastError = '';
+          status.lastError = status.online
+            ? ''
+            : (j && j.hasKey === false
+                ? '本地代理已启动，但没有配置 DEEPSEEK_API_KEY'
+                : '本地 AI 服务未就绪');
           status.checkedAt = Date.now();
           return status;
         })
         .catch(function (e) {
           if (timer) clearTimeout(timer);
           status.online = false;
-          status.mode = 'rules';
-          status.lastError = e && e.name === 'AbortError' ? '代理无响应' : '未检测到本地代理';
+          status.mode = 'offline';
+          status.lastError = e && e.name === 'AbortError' ? '本地代理无响应' : '未检测到本地 AI 服务';
           status.checkedAt = Date.now();
           return status;
         });
     }
 
     /**
-     * 主入口：跑完整的两道闸门。
+     * 主入口：先本地准入，过了再交给模型。
      * 外面裹一层留档 —— 无论从哪个分支返回，判定过程都能在设置页翻出来。
      */
     function judge(ctx) {
       var t0 = Date.now();
-      return judgeInner(ctx, t0).then(function (v) {
+      // 提交前确认一次 AI 还在线。探不到就明说探不到，不退回规则。
+      // 30 秒内刚确认过在线就不再探，省一次 /health 往返。
+      var fresh = status.online && (Date.now() - (status.checkedAt || 0) < 30000);
+      var ready = (cfg.mode === 'rules' || fresh) ? Promise.resolve(status) : probe();
+      return ready.then(function () {
+        return judgeInner(ctx, t0);
+      }).then(function (v) {
         note('judge', {
           mode: status.mode,
           online: status.online,
           hasPhoto: !!(ctx.image && String(ctx.image).length > 8),
           raster: isRasterImage(ctx.image),
+          demo: !!ctx.demo,
           imageLen: ctx.image ? String(ctx.image).length : 0,
           typeIn: ctx.type,
           desc: ctx.desc || '',
@@ -817,7 +754,8 @@
             };
           }),
           verdict: {
-            pass: v.pass, reason: v.reason || null, message: v.message || '',
+            pass: v.pass, stage: v.stage || '',
+            reason: v.reason || null, message: v.message || '',
             detail: (v.detail || '').slice(0, 240),
             type: v.type, typeAdjusted: !!v.typeAdjusted,
             review: !!v.review, reviewWhy: v.reviewWhy || '',
@@ -837,19 +775,19 @@
       var hasPhoto = !!(ctx.image && String(ctx.image).length > 8);
 
       /* 没照片的单子（校园网卡、系统故障这类本来就没法拍）：
-         跳过视觉闸门，直接走语义。不能因为没图就判它"画质存疑"，
-         那会把它塞进人工复核队列，等于变相罚了正常上报的人。 */
+         跳过本地画质关，但仍然交给模型 —— 只是这次它读的是文字。 */
       if (!hasPhoto) {
         var shortDesc = (ctx.desc || '').trim().length < 4;
         if (shortDesc) {
           return Promise.resolve(finish({
             pass: false,
+            stage: 'local',
             gates: [],
             reason: 'no-info',
             message: '这一类不用拍照，但得写一句是什么问题',
             detail: '没有照片，描述又不足 4 个字，无法判断',
             severity: 0,
-            source: 'rules',
+            source: 'local',
             seen: '',
             sawImage: false,
             metrics: null,
@@ -857,23 +795,28 @@
             latency: Date.now() - t0
           }));
         }
-        return judgeNoPhoto(ctx, t0);
+        return judgeByAi(ctx, t0, {
+          metrics: null,
+          vision: { pass: true, noPhoto: true }
+        });
       }
 
       return analyzeImage(ctx.image).then(function (metrics) {
         var vision = gateVision(metrics);
-        var local = { metrics: metrics, desc: ctx.desc, type: ctx.type };
 
-        // 硬伤（画面里没东西）直接拦，没必要再花钱调模型；
-        // 软伤（拍糊了、偏暗）继续往下走，让模型看一眼再决定。
-        if (!vision.pass && vision.hard) {
+        /* 本地没过 —— 到此为止。
+           不送到模型那里"碰碰运气"，也不替用户猜一个结论。
+           前端拿到 stage:'local' 就知道该让人重拍，而不是转人工。 */
+        if (!vision.pass) {
           return finish({
             pass: false,
+            stage: 'local',
             gates: [vision],
             reason: vision.reason,
             message: vision.message,
+            detail: '本地画质检查没过，这张没有送去 AI 分析',
             severity: 0,
-            source: 'rules',
+            source: 'local',
             seen: '',
             sawImage: false,
             metrics: metrics,
@@ -881,84 +824,79 @@
           });
         }
 
-        // 画质存疑但还没到硬拦的程度：最终结论由模型/规则决定，
-        // 但要把这层疑虑带到工单上，后台能看见"这张是放了但画质不踏实"。
-        var qualityHint = vision.pass ? null : {
-          reason: vision.reason,
-          message: vision.message,
-          issues: vision.issues
-        };
-
-        var semanticPromise;
-        if (status.mode === 'deepseek') {
-          var enriched = Object.assign({ metrics: metrics }, ctx);
-          semanticPromise = judgeByDeepSeek(enriched, cfg).catch(function (e) {
-            status.lastError = String(e && e.message || e);
-            // 模型挂了也要给用户一个出口 —— 降级放行，标人工复核
-            var fb = gateSemanticRules(local);
-            fb.degraded = true;
-            fb.detail = (fb.detail || '') + '（模型不可用，已降级为本地规则）';
-            return fb;
-          });
-        } else {
-          semanticPromise = Promise.resolve(gateSemanticRules(local));
-        }
-
-        return semanticPromise.then(function (sem) {
-          return finish(compose(ctx, sem, {
-            metrics: metrics,
-            vision: vision,
-            qualityHint: qualityHint,
-            t0: t0
-          }));
+        // 本地过了，就必须让模型真看图。这里没有再往下分叉的路。
+        return judgeByAi(Object.assign({ metrics: metrics }, ctx), t0, {
+          metrics: metrics,
+          vision: vision
         });
       });
     }
 
     /**
-     * 没有照片时的判定。
-     * 这类问题（断网、校园网卡、系统故障）能判断的只有文字：
-     * 是不是在说一处具体的公共设施问题，以及归哪一类。
+     * 第二关：模型判定。唯一的分支是「AI 在不在线」，而不是「要不要用规则」。
+     * 不在线就返回失败让前端提示重试 —— 没有降级、没有模板摘要。
      */
-    function judgeNoPhoto(ctx, t0) {
-      var local = { metrics: null, desc: ctx.desc, type: ctx.type };
-
-      var p;
-      if (status.mode === 'deepseek') {
-        p = judgeByDeepSeek(Object.assign({ image: '' }, ctx), cfg).catch(function (e) {
-          status.lastError = String(e && e.message || e);
-          var fb = gateSemanticRules(local);
-          fb.degraded = true;
-          fb.detail = (fb.detail || '') + '（模型不可用，已降级为本地规则）';
-          return fb;
-        });
-      } else {
-        p = Promise.resolve(gateSemanticRules(local));
+    function judgeByAi(ctx, t0, env) {
+      if (status.mode !== 'deepseek') {
+        return Promise.resolve(finish({
+          pass: false,
+          stage: 'ai',
+          aiUnavailable: true,
+          gates: env.vision && !env.vision.noPhoto ? [env.vision] : [],
+          reason: 'ai-offline',
+          message: 'AI 没连上，这条还没有分析',
+          detail: status.lastError || '本地 AI 服务未连接，启动代理后再试',
+          severity: 0,
+          source: 'none',
+          seen: '',
+          sawImage: false,
+          metrics: env.metrics || null,
+          latency: Date.now() - t0
+        }));
       }
 
-      return p.then(function (sem) {
+      return judgeByDeepSeek(ctx, cfg).then(function (sem) {
         // 纯文字的判定，模型看不到画面，它说的"看不清"一律不算数
-        if (sem.pass === false && /blur|dark|exposed|blank|blackout|flat/.test(sem.reason || '')) {
+        if (!ctx.image && sem.pass === false &&
+            /blur|dark|exposed|blank|blackout|flat/.test(sem.reason || '')) {
           sem.pass = true;
           sem.reason = null;
           sem.message = '';
           sem.detail = '没有照片，画质类判断不适用';
         }
         return finish(compose(ctx, sem, {
-          metrics: null,
-          vision: { pass: true, noPhoto: true },
-          qualityHint: null,
+          metrics: env.metrics || null,
+          vision: env.vision || { pass: true, noPhoto: true },
           t0: t0
         }));
+      }).catch(function (e) {
+        status.lastError = String(e && e.message || e);
+        // 这一次失败了，下一次提交要重新探活，别拿旧的"在线"状态继续用
+        status.online = false;
+        status.mode = 'offline';
+        return finish({
+          pass: false,
+          stage: 'ai',
+          aiFailed: true,
+          reason: 'ai-failed',
+          message: 'AI 调用失败，这条还没有分析',
+          detail: status.lastError,
+          severity: 0,
+          source: 'none',
+          seen: '',
+          sawImage: false,
+          metrics: env.metrics || null,
+          latency: Date.now() - t0
+        });
       });
     }
 
     /**
-     * 把模型/规则给的语义结论，和上下文合成最终裁定。
-     * 这里做三件"以前没做"的事：
+     * 把模型的结论和上下文合成最终裁定。
+     * 这里做三件事：
      *   1. 类型自动纠正 —— 点错分类不再是驳回理由；
      *   2. 矛盾检测 —— 描述和画面对不上时，把 AI 改好的版本带回去让用户确认；
-     *   3. 把 review / soft 这些标记一次算清，前端不用再猜。
+     *   3. 把 review 这些标记一次算清，前端不用再猜。
      */
     function compose(ctx, sem, env) {
       var vision = env.vision || {};
@@ -981,11 +919,10 @@
       var passed = soft ? true : sem.pass;
 
       // ---- 类型自动纠正 ----
-      // 模型会给 type；本地规则给的是 suggestType（关键词命中哪一类）。
-      // 两个都认，谁有就用谁 —— 点错分类不是用户的错，更不该成为驳回理由。
+      // 只认模型给的 type —— 点错分类不是用户的错，更不该成为驳回理由。
       var finalType = ctx.type;
       var typeAdjusted = false;
-      var candType = sem.type || sem.suggestType;
+      var candType = sem.type;
       if (candType && (!global.Domain || Domain.TYPE_MAP[candType])) {
         if (candType !== ctx.type) {
           finalType = candType;
@@ -999,7 +936,7 @@
       var conflict = !!(passed && sem.vision && sem.conflict && sem.desc);
 
       var severity = sem.severity || estimateSeverity({ type: finalType }, metrics);
-      var review = !!env.qualityHint || !!sem.degraded;
+      var review = false;
 
       /* 有照片、却没跑上视觉模型 —— 这张单等于没被"看过"。
          本地指标只回答"清不清晰、亮不亮、平不平"，它回答不了"画面里是不是一处设施"。
@@ -1007,11 +944,6 @@
          所以这种单不能当干净单混进池子，必须转人工看一眼，并且在结果页说清楚。 */
       var offlinePhoto = !!metrics && isRasterImage(ctx.image) && !sem.vision;
       if (offlinePhoto) review = true;
-
-      // 摘要与建议必须来自模型。
-      // 规则引擎只会按类型套一句「路灯问题待核查」——那是模板，不是判断，
-      // 摆出来只会让人以为 AI 已经看过了。宁可不写，也不假装。
-      var fromModel = sem.source === 'deepseek';
 
       return {
         pass: passed,
@@ -1033,22 +965,22 @@
         conflictNote: sem.conflictNote || '',
         suggestDesc: conflict ? sem.desc : '',
 
-        summary: sem.summary || (fromModel ? autoSummary({ type: finalType, desc: conflict ? sem.desc : ctx.desc }) : ''),
-        advice: sem.advice || (fromModel ? autoAdvice({ type: finalType }) : ''),
+        // 摘要与建议只认模型给的原文。
+        // 以前这里会按类型套一句「某类问题待核查」—— 那是模板，不是判断，
+        // 摆出来只会让人以为 AI 已经看过了。模型没给就留空，宁可不写。
+        summary: sem.summary || '',
+        advice: sem.advice || '',
         severity: severity,
-        source: sem.source || 'rules',
+        source: sem.source || 'deepseek',
         // 模型自述的"看到了什么" —— 后台抽屉里展示，证明这次是真看了图
         seen: sem.seen || '',
         sawImage: !!sem.vision,
         metrics: metrics,
-        degraded: !!sem.degraded,
-        qualityHint: env.qualityHint,
+        degraded: false,
+        qualityHint: null,
         review: passed && review,
-        // 转复核要有个理由，界面才能说人话；三个来源不能混着讲
-        reviewWhy: !passed ? ''
-          : offlinePhoto ? 'no-vision'
-          : env.qualityHint ? 'quality'
-          : sem.degraded ? 'degraded' : '',
+        // 转复核要有个理由，界面才能说人话
+        reviewWhy: !passed ? '' : offlinePhoto ? 'no-vision' : '',
         // 模型的原始输出，只在"分析过程"里给人看，不参与业务判断
         raw: sem.raw || '',
         noPhoto: !metrics,
@@ -1071,16 +1003,22 @@
       return base;
     }
 
-    function autoSummary(ctx) {
-      var label = global.Domain ? Domain.type(ctx.type).label : '设施';
-      var d = (ctx.desc || '').trim();
-      if (!d) return label + '问题待核查';
-      return d.length > 20 ? d.slice(0, 20) + '…' : d;
-    }
-
-    function autoAdvice(ctx) {
-      var deptName = global.Domain ? Domain.deptFor(ctx.type).short : '相关班组';
-      return '建议派' + deptName + '现场核实后处置';
+    /**
+     * 只跑本地准入，不调模型。
+     * 选完图立刻给一次反馈：糊了、太暗、像截图，当场提示重拍，
+     * 不用等用户填完一整张表单、点了提交才被拦。
+     */
+    function check(image) {
+      return analyzeImage(image).then(function (metrics) {
+        var vision = gateVision(metrics);
+        return {
+          ok: vision.pass,
+          metrics: metrics,
+          vision: vision,
+          reason: vision.reason,
+          message: vision.message
+        };
+      });
     }
 
     /**
@@ -1120,6 +1058,7 @@
 
     return {
       judge: judge,
+      check: check,
       preview: preview,
       probe: probe,
       status: function () { return Object.assign({}, status); },
@@ -1147,7 +1086,6 @@
     SYSTEM_PROMPT: SYSTEM_PROMPT,
     /** 暴露给测试用 */
     _gateVision: gateVision,
-    _gateSemanticRules: gateSemanticRules,
     _safeParseJSON: safeParseJSON,
     _normalizeType: normalizeType
   };

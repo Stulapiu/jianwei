@@ -35,6 +35,7 @@
     located: false,
     invalidStreak: 0,     // 连续被拦次数，满 3 转人工
     preview: null,        // 图片即时预判结果（AI 认出来的类型 + 一句话描述）
+    photoGate: null,      // 本地准入结果：糊了/太暗/像截图，选图后立刻提示
     previewing: false,    // 预判请求在飞
     session: null,        // 当前身份（学号 / 手机号 / 游客）
     reports: JSON.parse(JSON.stringify(D.MY_REPORTS)),
@@ -446,7 +447,7 @@
     let html = state.photos.map(function (ph, i) {
       return '<div class="photo-cell photo-pop">' +
                photoOf(ph) +
-               (ph.src ? '<span class="photo-real">实拍</span>' : '') +
+               (ph.real ? '<span class="photo-real">' + (ph.demo ? '演示图' : '实拍') + '</span>' : '') +
                '<button class="photo-del" data-del="' + i + '" aria-label="删除">' +
                  UI.icon('close', 11) + '</button>' +
              '</div>';
@@ -603,6 +604,36 @@
   }
 
   /**
+   * 演示场景的 SVG → 位图。
+   *
+   * 演示图是 240×180 的矢量插画。以前这类图故意不送模型（模型会说"这不是照片"），
+   * 结果演示时只有文字参与判断、看不到画面。现在把插画栅格化成 PNG 一起送，
+   * prompt 里也说明了"示意图按画面内容判断"，演示走的就是真的视觉链路。
+   */
+  function svgToPng(svg, width) {
+    return new Promise(function (resolve) {
+      const img = new Image();
+      img.onload = function () {
+        try {
+          const W = width || 720;
+          const H = Math.max(2, Math.round(W * (img.height || 180) / (img.width || 240)));
+          const cv = document.createElement('canvas');
+          cv.width = W; cv.height = H;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#fff';
+          cx.fillRect(0, 0, W, H);
+          cx.drawImage(img, 0, 0, W, H);
+          resolve(cv.toDataURL('image/jpeg', 0.88));
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+
+  /**
    * 图片即时预判。
    *
    * 用户按下快门之后、还在想怎么描述的那几秒里，把两件事做完：
@@ -618,28 +649,41 @@
 
     const seq = ++previewSeq;
     state.previewing = true;
+    state.preview = null;
+    state.photoGate = null;
     renderSuggest({ loading: true });
 
     const ag = getAgent();
-    ag.probe().then(function (st) {
+
+    /* 先本地过一遍，过了才花一次模型调用。
+       糊到看不清的图当场让人重拍 —— 不把一张注定要退的图送去模型，
+       也不让用户填完整个表单、点了提交才被拦。 */
+    ag.check(ph.src).then(function (qc) {
       if (seq !== previewSeq) return null;
-      if (st.mode !== 'deepseek') {
+      if (!qc.ok) {
         state.previewing = false;
-        state.preview = null;
-        renderSuggest({ offline: true });
+        state.photoGate = qc;
+        renderSuggest({ quality: qc });
         return null;
       }
-      return ag.preview({
-        image: ph.src,
-        type: state.type,
-        desc: state.desc,
-        address: state.addr
+      return ag.probe().then(function (st) {
+        if (seq !== previewSeq) return null;
+        if (st.mode !== 'deepseek') {
+          state.previewing = false;
+          renderSuggest({ offline: true });
+          return null;
+        }
+        return ag.preview({
+          image: ph.src,
+          type: state.type,
+          desc: state.desc,
+          address: state.addr
+        });
       });
     }).then(function (res) {
       if (seq !== previewSeq || !res) return;
       state.previewing = false;
       if (!res.ok) {
-        state.preview = null;
         renderSuggest({ offline: true });
         return;
       }
@@ -670,11 +714,23 @@
       return;
     }
 
+    if (opt.quality) {
+      boxT.hidden = false;
+      boxT.innerHTML =
+        '<div class="ts-head" style="color:var(--warn)">' +
+          '<span class="ts-ic">' + UI.icon('alert', 13) + '</span>' +
+          UI.escapeHtml(opt.quality.message || '这张照片本地检查没过') +
+        '</div>' +
+        '<div class="ts-note">本地只看清晰度和亮度。这张没过，AI 也看不清，先重拍一张更清楚的再提交。</div>';
+      boxD.hidden = true;
+      return;
+    }
+
     if (opt.offline) {
       boxT.hidden = false;
       boxT.innerHTML =
-        '<div class="ts-head"><span class="ts-ic">' + UI.icon('spark', 13) + '</span>即时识别没连上</div>' +
-        '<div class="ts-note">本地代理没启动时无法识图，不影响提交；提交后仍会按文字判断</div>';
+        '<div class="ts-head"><span class="ts-ic">' + UI.icon('spark', 13) + '</span>AI 没连上</div>' +
+        '<div class="ts-note">图片还没送去识别。提交前需要连上 AI，否则这条不会被分析 —— 稍后再试或检查本地代理。</div>';
       boxD.hidden = true;
       return;
     }
@@ -1032,6 +1088,7 @@
     state.type = '';
     state.desc = '';
     state.preview = null;
+    state.photoGate = null;
     if (!keepAddr) state.addr = '';
     $('#descInput').value = '';
     $('#descCount').textContent = '0';
@@ -1245,20 +1302,22 @@
 
   let agent = null;
 
+  /** 个人中心那一行「AI 连接状态」，探活结果直接画出来 */
+  function paintAiBadge(st) {
+    const badge = $('#aiModeBadge');
+    if (!badge) return;
+    badge.textContent = st.mode === 'deepseek'
+      ? (st.vision ? 'DeepSeek 看图 · ' + (st.model || 'deepseek-flash')
+                   : 'DeepSeek 文本 · ' + (st.model || 'deepseek-flash'))
+      : 'AI 未连接 · 点此重试';
+    badge.dataset.mode = st.mode;
+  }
+
   function getAgent() {
     if (!agent) {
       agent = SentinelAgent.create({ mode: 'auto' });
-      // 探测本地代理。探不到就走规则引擎，不影响使用。
-      agent.probe().then(function (st) {
-        const badge = $('#aiModeBadge');
-        if (badge) {
-          badge.textContent = st.mode === 'deepseek'
-            ? (st.vision ? 'DeepSeek 看图 · ' + (st.model || 'deepseek-flash')
-                         : 'DeepSeek 文本 · ' + (st.model || 'deepseek-flash'))
-            : '本地规则引擎';
-          badge.dataset.mode = st.mode;
-        }
-      });
+      // 探测本地代理。探不到就照实显示"AI 未连接"—— 不假装还有规则兜底。
+      agent.probe().then(paintAiBadge);
     }
     return agent;
   }
@@ -1350,7 +1409,8 @@
     let photoHash = null;
     if (window.Guard && Guard.hashImage) {
       const p0 = state.photos[0];
-      if (p0 && p0.real && p0.src) photoHash = await Guard.hashImage(p0.src);
+      // 演示图是内置素材，每次运行都是同一张，不能拿它去触发「同图」拦截
+      if (p0 && p0.real && p0.src && !p0.demo) photoHash = await Guard.hashImage(p0.src);
     }
 
     /* 防刷：间隔、同图、重复、配额、冷静期，都在 Guard 里。
@@ -1376,6 +1436,8 @@
       image: state.photos.length
         ? (state.photos[0].src || D.photoDataURI(state.photos[0].kind))
         : '',
+      // 演示图要在 prompt 里说明"这是示意图"，模型才不会因为不是实拍而驳回
+      demo: !!(state.photos[0] && state.photos[0].demo),
       type: state.type,
       desc: state.desc,
       address: state.addr,
@@ -1389,14 +1451,29 @@
     // 现在由 agent.js 分流：没拍到东西是硬拦（重拍），拍到了但没拍好是
     // 软提示（放行 + 进人工复核）。前端不再二次覆盖模型的结论。
 
-    // 真实模型通常 1–3 秒，本地规则只要几十毫秒。
-    // 太快反而显得"根本没在看"，兜一个下限，也让讲解有个节拍。
-    const minWait = st.mode === 'deepseek' ? 700 : 1150;
+    // 真实模型通常 1–3 秒。太快反而显得"根本没在看"，兜一个下限；
+    // 离线时不用等 —— 尽快把"没连上"告诉用户。
+    const minWait = st.mode === 'deepseek' ? 700 : 0;
     const rest = minWait - (Date.now() - t0);
     if (rest > 0) await sleep(rest);
 
     closeAiMask();
     await sleep(140);
+
+    /* AI 没连上 / 调用失败：这条不落库，表单原样留着。
+       没有降级、没有模板摘要 —— 演示时宁可当场看见"没分析"，
+       也不要出现一段和照片对不上的分析。 */
+    if (v.stage === 'ai') {
+      showAiDown(v);
+      return;
+    }
+
+    /* 本地画质没过：直接让用户重拍，不送去 AI，也不算一次 AI 驳回
+       （否则手机镜头脏的人会被连续 3 次的冷静期锁住）。 */
+    if (v.stage === 'local') {
+      showReject(v);
+      return;
+    }
 
     if (!v.pass) {
       if (window.Guard) Guard.noteReject();
@@ -1484,7 +1561,8 @@
       // 判定过程也一起存下来：后台要看的是"AI 为什么放行"，不是只看到一个绿点
       analysis: {
         pass: !!v.pass,
-        source: v.source || (st.mode === 'deepseek' ? 'deepseek' : 'rules'),
+        stage: v.stage || 'ai',
+        source: v.source || 'deepseek',
         reason: v.reason || null,
         summary: v.summary || '',
         advice: v.advice || '',
@@ -1680,12 +1758,9 @@
                   : '这张单会先过一遍人工复核') + '</div>' +
               '<div class="hint" style="margin-top:2px">' +
                 (v.reviewWhy === 'no-vision'
-                  ? '本地 AI 服务没连上，只能算清晰度和亮度，看不出画面里是什么。' +
+                  ? '这张图的尺寸或格式没能送进视觉模型，画面内容没有被识别。' +
                     '工单照常提交，管理员看一眼就能确认，不扣信用分。'
-                  : (v.qualityHint && v.qualityHint.message
-                      ? '画质提示：' + UI.escapeHtml(v.qualityHint.message) + '。'
-                      : '') +
-                    '管理员确认现场后照常派单，不扣信用分，处理完积分照发。') +
+                  : '管理员确认现场后照常派单，不扣信用分，处理完积分照发。') +
               '</div></div>' +
             '</div>'
           : '') +
@@ -1714,11 +1789,11 @@
               pri.id + ' · ' + pri.label + '</span></span></div>' +
           '<div class="ai-block">' +
             '<span class="tag tag--ai">' + UI.icon('spark', 11) +
-              (v.summary || v.advice ? 'AI 建议 · 仅供参考' : 'AI 未接入') + '</span>' +
+              (v.summary || v.advice ? 'AI 建议 · 仅供参考' : 'AI 已看过 · 未给摘要') + '</span>' +
             '<div class="txt">' + UI.escapeHtml(v.summary ||
               (state.photos.length
-                ? '本地代理没启动，这一条没有生成摘要和处置建议。照片也只算了清晰度和亮度，没有识别画面内容 —— 所以会自动转人工看一眼。'
-                : '本地代理没启动，这一条没有生成摘要和处置建议。这条本来就没传照片，只按你写的文字归类，工单照常派单。')) + '</div>' +
+                ? '模型看过这张图了，但没有写摘要。下面这些字段仍是按画面判的。'
+                : '这条没有照片，模型只读了文字，没有写摘要。')) + '</div>' +
             (v.advice ? '<div class="advice">处置建议：' + UI.escapeHtml(v.advice) + '</div>' : '') +
           '</div>' +
         '</div>' +
@@ -1775,6 +1850,49 @@
     renderResult(html);
   }
 
+  /**
+   * AI 没连上 / 调用失败。
+   *
+   * 这里刻意不提供"仍然提交"：这张单从来没有被分析过，放进去只会在后台
+   * 变成一条没有诊断、还占着队列的记录。让用户重试，或者先不报。
+   */
+  function showAiDown(v) {
+    const html =
+      '<div class="result-wrap">' +
+        '<div class="blur-dots"><i></i><i></i><i></i></div>' +
+        '<div class="result-title">AI 没连上，这条还没有提交</div>' +
+        '<div class="result-sub">不是你的问题，网络或本地 AI 服务断了</div>' +
+        '<div class="info-card">' +
+          '<div class="info-row"><span class="k">当前状态</span>' +
+            '<span class="v"><span class="tag tag--warn">未分析 · 未提交</span></span></div>' +
+          '<div style="padding:12px 0 14px">' +
+            '<div class="hint" style="line-height:1.7">' +
+              '这张照片还在，描述也没丢。连上 AI 之后点重试就行。' +
+              '系统不会用模板编一段分析糊弄你 —— 没看过图，就说没看过。' +
+            '</div>' +
+            (v.detail ? '<div class="hint" style="margin-top:8px;opacity:.7">' +
+              UI.escapeHtml(v.detail) + '</div>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="result-actions">' +
+        '<button class="btn btn--primary btn--block" id="btnAiRetry">重试</button>' +
+        '<button class="btn btn--ghost btn--block" data-go="report">回去改一下</button>' +
+      '</div>';
+
+    renderResult(html);
+
+    const retry = $('#btnAiRetry');
+    if (retry) {
+      retry.addEventListener('click', function () {
+        retry.disabled = true;
+        retry.textContent = '正在重试…';
+        go('report');
+        submit();
+      });
+    }
+  }
+
   function showReject(v) {
     // renderResult 是独立函数，拿不到这里的 v；转人工时要读紧急度，
     // 先存一份，避免点"仍然提交"时报 undefined。
@@ -1787,6 +1905,7 @@
       dark: '照片太暗',
       overexposed: '照片过曝',
       flat: '疑似截图或纯色图',
+      unreadable: '图片读不出来',
       'non-facility': '没识别到公共设施',
       'no-info': '没有照片，描述也太短',
       mismatch: '描述与类型不一致'
@@ -1798,8 +1917,11 @@
         '把镜头对准要报的设施再拍一张就行。'
       : v.reason === 'no-info'
         ? '这一类可以不拍照，但至少写一句是什么问题，比如「3 号楼 502 校园网一直断」。'
-        : '这次不算你的错，只是 AI 想让工单更准确一点。' +
-          '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。';
+        : v.stage === 'local'
+          ? '本地画质检查没过，这张没有送去 AI。重拍一张更清楚的就行 —— ' +
+            '不用改描述，也不用重新定位。'
+          : '这次不算你的错，只是 AI 想让工单更准确一点。' +
+            '重新拍一张通常就能过；如果你确信信息没问题，也可以直接转人工复核。';
 
     const html =
       '<div class="result-wrap">' +
@@ -1825,8 +1947,11 @@
 
       '<div class="result-actions">' +
         '<button class="btn btn--primary btn--block" id="btnRetry">重新拍一张</button>' +
-        '<button class="btn btn--text btn--block" id="btnForce">仍然提交，转人工复核</button>' +
-        '<div class="dock-hint">AI 建议 · 仅供参考，人工复核全程保留</div>' +
+        (v.stage === 'local'
+          ? '<button class="btn btn--text btn--block" data-go="report">回去改一下描述</button>' +
+            '<div class="dock-hint">本地检查只管清晰度和亮度，没过就不送 AI —— 免得它在一张糊图里猜</div>'
+          : '<button class="btn btn--text btn--block" id="btnForce">仍然提交，转人工复核</button>' +
+            '<div class="dock-hint">AI 建议 · 仅供参考，人工复核全程保留</div>') +
       '</div>';
 
     renderResult(html);
@@ -2292,8 +2417,8 @@
     const dbgTag = $('#aiDebugTag');
     if (dbgTag) {
       const st = getAgent().status();
-      dbgTag.textContent = st.mode === 'deepseek' ? 'DeepSeek' : '本地规则';
-      dbgTag.className = 'tag' + (st.mode === 'deepseek' ? ' tag--ok' : '');
+      dbgTag.textContent = st.mode === 'deepseek' ? 'DeepSeek' : 'AI 离线';
+      dbgTag.className = 'tag' + (st.mode === 'deepseek' ? ' tag--ok' : ' tag--warn');
     }
 
     const owned = D.BADGES.filter(function (b) { return u.badges.indexOf(b.code) >= 0; });
@@ -2349,8 +2474,15 @@
     go('report');
     resetForm(true);
 
-    // 预置材料
-    state.photos = [{ kind: s.photo }];
+    // 预置材料。演示图也栅格化成 PNG 一起送模型 ——
+    // 现场演示走的就是"本地准入 → 视觉模型"这条路，不是预置文案。
+    const demoPng = await svgToPng(D.photoSVG(s.photo), 720);
+    state.photos = [{
+      kind: s.photo,
+      src: demoPng || D.photoDataURI(s.photo),
+      real: !!demoPng,
+      demo: true
+    }];
     state.type = s.type;
     state.desc = s.desc;
     state.addr = s.addr;
@@ -2704,7 +2836,7 @@
       (last
         ? '<div class="dbg-hero">' +
             verdictChip(v) +
-            '<span class="dbg-mode">' + (last.mode === 'deepseek' ? 'DeepSeek 视觉' : '本地规则') + '</span>' +
+            '<span class="dbg-mode">' + (last.mode === 'deepseek' ? 'DeepSeek 视觉' : 'AI 未连接') + '</span>' +
             '<span class="dbg-lat">' + (last.verdict.latency || 0) + ' ms</span>' +
           '</div>' +
 
@@ -2713,14 +2845,18 @@
             '<div class="dbg-line">' +
               (last.hasPhoto
                 ? (last.raster
-                    ? '是一张真实照片（' + Math.round(last.imageLen / 1024) + ' KB）'
-                    : '是演示用的示意图（SVG），按设计不送模型')
+                    ? (last.demo
+                        ? '是演示示意图，已栅格化成位图（' + Math.round(last.imageLen / 1024) + ' KB）'
+                        : '是一张真实照片（' + Math.round(last.imageLen / 1024) + ' KB）')
+                    : '是演示示意图（SVG），浏览器没能栅格化，只能按文字判断')
                 : '这条没有照片') +
             '</div>' +
             '<div class="dbg-line ' + (last.verdict.sawImage ? 'is-ok' : 'is-warn') + '">' +
               (last.verdict.sawImage
                 ? '✓ 已送进视觉模型，它看过了'
-                : '✗ 没有送进模型' + (last.hasPhoto && last.raster ? ' —— 本地代理没启动，模型没看到这张图' : '')) +
+                : (last.verdict.stage === 'local'
+                    ? '✗ 本地画质没过，这张没有送去模型'
+                    : '✗ 没有送进模型 —— AI 未连接，所以这次没有分析')) +
             '</div>' +
             (last.verdict.seen
               ? '<div class="dbg-quote">模型说：' + UI.escapeHtml(last.verdict.seen) + '</div>'
@@ -2728,7 +2864,7 @@
           '</div>' +
 
           '<div class="dbg-sec">' +
-            '<div class="dbg-t">② 闸门一 · 画质（纯算法，不花钱）</div>' +
+            '<div class="dbg-t">② 第一关 · 本地准入（纯算法，不花钱）</div>' +
             metricTable(last.metrics) +
             (gVision
               ? '<div class="dbg-line">结论：' + (gVision.pass ? '通过' : '不合格 · ' + (gVision.reason || '')) +
@@ -2737,9 +2873,11 @@
           '</div>' +
 
           '<div class="dbg-sec">' +
-            '<div class="dbg-t">③ 闸门二 · 内容与归类</div>' +
+            '<div class="dbg-t">③ 第二关 · 模型判定（必经）</div>' +
             '<div class="dbg-line">判定来源：' +
-              (last.verdict.source === 'deepseek' ? 'DeepSeek 视觉' : '本地关键词规则（没看图）') + '</div>' +
+              (last.verdict.source === 'deepseek'
+                ? 'DeepSeek 视觉'
+                : (last.verdict.stage === 'local' ? '没有进入这一关（本地已经拦下）' : '没有判定（AI 未连接）')) + '</div>' +
             '<div class="dbg-line">用户选的类型：' + typeName(last.typeIn) +
               (last.verdict.typeAdjusted
                 ? '　→　改成：' + typeName(last.verdict.type) + '（点错不驳回，直接改）'
@@ -2787,8 +2925,9 @@
               return '<div class="dbg-item">' +
                 '<span class="dbg-when">' + fmtTime(h.at) + '</span>' +
                 '<span class="dbg-what">' +
-                  (vv.pass ? (vv.review ? '放行·复核' : '放行') : '拦下') +
-                  ' · ' + (h.mode === 'deepseek' ? 'DeepSeek' : '本地规则') +
+                  (vv.pass ? (vv.review ? '放行·复核' : '放行')
+                           : (vv.stage === 'local' ? '本地拦下' : '未判定')) +
+                  ' · ' + (h.mode === 'deepseek' ? 'DeepSeek' : 'AI 离线') +
                   (h.hasPhoto ? (h.raster ? ' · 真图' : ' · 示意图') : ' · 无图') +
                 '</span>' +
               '</div>';
@@ -2797,7 +2936,8 @@
       '</div>' +
 
       '<div class="dbg-foot">这些是判定用的原样数据，不参与业务逻辑。' +
-        '本地代理没启动时，图片一律不会被识别内容 —— 只看清晰度、亮度、平坦区这些像素统计。</div>';
+        '本地只做准入（清晰度、亮度、平坦区），过了才会送模型；模型没连上就没有分析，' +
+        '系统也不会用模板补一段。</div>';
 
     UI.sheet({ title: 'AI 分析过程', sub: '看清楚这张图有没有被模型看过', body: html });
   }
@@ -2805,7 +2945,7 @@
   function modeLine(st) {
     if (!st) return '未知';
     if (st.mode === 'deepseek') return 'DeepSeek 视觉 · ' + (st.model || '') + (st.vision ? ' · 支持图片' : ' · 不带视觉');
-    return '本地规则（' + (st.lastError || '代理未连接') + '）· 图片不会被识别内容';
+    return 'AI 未连接（' + (st.lastError || '代理未启动') + '）· 这次不会产生分析';
   }
 
   function typeName(k) {
@@ -3103,6 +3243,20 @@
     renderSuggest();
     refreshSubmit();
     bindReport();
+
+    // 「AI 未连接」那行可以点，点一次重新探活 —— 演示前不用刷新整页
+    const aiBadge = $('#aiModeBadge');
+    if (aiBadge) {
+      aiBadge.addEventListener('click', function () {
+        aiBadge.textContent = '检测中…';
+        getAgent().probe().then(function (st) {
+          paintAiBadge(st);
+          UI.toast(st.mode === 'deepseek' ? 'AI 已连上' : (st.lastError || 'AI 还是没连上'),
+                   st.mode === 'deepseek' ? 'ok' : 'warn');
+        });
+      });
+    }
+
     bindAuth();
     bindQuery();
     renderQuery('');

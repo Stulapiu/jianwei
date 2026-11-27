@@ -11,7 +11,8 @@
  *                    服务端转发没有同源限制。
  * 3. 保管密钥      —— API Key 只存在于这台机器的环境变量里，
  *                    前端代码和 GitHub 仓库里永远看不到。
- * 4. 离线兜底      —— 没配 Key 也能跑，前端自动回落到本地规则引擎。
+ * 4. 如实报状态    —— 没配 Key 也能打开页面，但 /health 会返回 ok:false，
+ *                    前端直接显示「AI 未连接」，不会降级成规则判定。
  *
  * 用法：
  *   set DEEPSEEK_API_KEY=sk-xxxx      （Windows CMD）
@@ -304,7 +305,9 @@ const server = http.createServer(async (req, res) => {
 
   if (url === '/health') {
     return json(res, 200, {
-      ok: true,
+      // ok 表示「AI 可判定」。没配 Key 时静态页面照常能开，
+      // 但前端必须看出这一点，而不是以为模型在后台等着。
+      ok: !!API_KEY,
       hasKey: !!API_KEY,
       // deepseek-flash 原生支持图片输入，前端据此决定要不要把原图一起发
       vision: true,

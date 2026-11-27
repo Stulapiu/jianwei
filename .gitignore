@@ -19,3 +19,6 @@ desktop.ini
 *.log
 tmp/
 .tmp/
+
+# 文档流水线中间产物（成品已放 docs/）
+output/

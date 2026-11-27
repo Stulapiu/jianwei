@@ -40,6 +40,7 @@
     lat: null,
     located: false,
     preview: null,        // 图片即时预判结果
+    photoGate: null,      // 本地准入结果（糊了/太暗/像截图）
     previewing: false,
     lastReject: null,
     tstatus: 'all',
@@ -194,6 +195,7 @@
     state.desc = '';
     state.type = '';
     state.preview = null;
+    state.photoGate = null;
     var d = $('#descInput');
     if (d) { d.value = ''; }
     var c = $('#descCount');
@@ -318,9 +320,29 @@
     return D.photoSVG(src);
   }
 
-  function photoForAgent(src) {
-    if (!src) return '';
-    return src.indexOf('data:') === 0 ? src : D.photoDataURI(src);
+  /**
+   * 样例图是 SVG，模型只认位图。演示时把它栅格化成 PNG 一起送，
+   * 这样"看图判断"是真的在看图，不是拿文字猜。
+   */
+  function svgToPng(svg, width) {
+    return new Promise(function (resolve) {
+      const img = new Image();
+      img.onload = function () {
+        try {
+          const W = width || 720;
+          const H = Math.max(2, Math.round(W * (img.height || 180) / (img.width || 240)));
+          const cv = document.createElement('canvas');
+          cv.width = W; cv.height = H;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#fff';
+          cx.fillRect(0, 0, W, H);
+          cx.drawImage(img, 0, 0, W, H);
+          resolve(cv.toDataURL('image/jpeg', 0.88));
+        } catch (e) { resolve(null); }
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
   }
 
   function renderShots() {
@@ -385,23 +407,37 @@
 
     const seq = ++previewSeq;
     state.previewing = true;
+    state.preview = null;
+    state.photoGate = null;
     renderSuggest({ loading: true });
 
     const ag = getAgent();
-    ag.probe().then(function (st) {
+
+    /* 和手机端同一条路：先本地准入，过了才调模型。
+       本地拦下就当场提示换图，不把一张注定要退的图送去模型。 */
+    ag.check(src).then(function (qc) {
       if (seq !== previewSeq) return null;
-      if (st.mode !== 'deepseek') {
+      if (!qc.ok) {
         state.previewing = false;
-        state.preview = null;
-        renderSuggest({ offline: true });
+        state.photoGate = qc;
+        renderSuggest({ quality: qc });
         return null;
       }
-      return ag.preview({ image: src, type: state.type, desc: state.desc, address: state.addr });
+      return ag.probe().then(function (st) {
+        if (seq !== previewSeq) return null;
+        if (st.mode !== 'deepseek') {
+          state.previewing = false;
+          renderSuggest({ offline: true });
+          return null;
+        }
+        return ag.preview({ image: src, type: state.type, desc: state.desc, address: state.addr });
+      });
     }).then(function (res) {
       if (seq !== previewSeq || !res) return;
       state.previewing = false;
-      state.preview = res.ok ? res : null;
-      renderSuggest(res.ok ? {} : { offline: true });
+      if (!res.ok) { renderSuggest({ offline: true }); return; }
+      state.preview = res;
+      renderSuggest();
     }).catch(function () {
       if (seq !== previewSeq) return;
       state.previewing = false;
@@ -422,10 +458,20 @@
       boxD.hidden = true;
       return;
     }
+    if (opt.quality) {
+      boxT.hidden = false;
+      boxT.innerHTML =
+        '<div class="ts-head" style="color:var(--warn)">' + UI.icon('alert', 13) + ' ' +
+          UI.escapeHtml(opt.quality.message || '这张照片本地检查没过') + '</div>' +
+        '<div class="ts-note">本地只看清晰度和亮度。这张没过，AI 也看不清，换一张更清楚的再提交。</div>';
+      boxD.hidden = true;
+      return;
+    }
+
     if (opt.offline) {
       boxT.hidden = false;
-      boxT.innerHTML = '<div class="ts-head">' + UI.icon('spark', 13) + ' 即时识别没连上</div>' +
-        '<div class="ts-note">本地代理没启动时无法识图，不影响提交；提交后仍会按文字判断</div>';
+      boxT.innerHTML = '<div class="ts-head">' + UI.icon('spark', 13) + ' AI 没连上</div>' +
+        '<div class="ts-note">图片还没送去识别。提交前需要连上 AI，否则这条不会被分析 —— 稍后再试或检查本地代理。</div>';
       boxD.hidden = true;
       return;
     }
@@ -627,7 +673,10 @@
       agent = SentinelAgent.create({ mode: 'auto' });
       agent.probe().then(function (st) {
         const badge = $('#aiMode');
-        if (badge) badge.textContent = st.mode === 'deepseek' ? 'DeepSeek' : '本地规则';
+        if (badge) {
+          badge.textContent = st.mode === 'deepseek' ? 'DeepSeek' : 'AI 未连接';
+          badge.dataset.mode = st.mode;
+        }
       });
     }
     return agent;
@@ -675,6 +724,18 @@
     const st = ag.status();
     const t0 = Date.now();
 
+    // 样例图先栅格化，模型才看得到画面；本地图片本来就是位图
+    let agentImage = '';
+    let isDemoPhoto = false;
+    if (state.photo) {
+      if (state.photo.indexOf('data:') === 0) {
+        agentImage = state.photo;
+      } else {
+        agentImage = (await svgToPng(D.photoSVG(state.photo), 720)) || D.photoDataURI(state.photo);
+        isDemoPhoto = true;
+      }
+    }
+
     const steps = [
       { text: '检查照片清晰度与曝光', cls: 'run' },
       { text: '看图确认问题类型与描述', cls: '' },
@@ -692,7 +753,8 @@
     }, st.mode === 'deepseek' ? 520 : 300);
 
     const v = await ag.judge({
-      image: state.photo ? photoForAgent(state.photo) : '',
+      image: agentImage,
+      demo: isDemoPhoto,
       type: state.type,
       desc: state.desc,
       address: state.addr,
@@ -700,12 +762,26 @@
       lat: state.lat
     });
 
-    const minWait = st.mode === 'deepseek' ? 900 : 1300;
+    const minWait = st.mode === 'deepseek' ? 900 : 0;
     const rest = minWait - (Date.now() - t0);
     if (rest > 0) await sleep(rest);
     clearInterval(timer);
     steps.forEach(function (s) { s.cls = 'done'; });
     setSteps(steps);
+
+    /* AI 没连上：这条不落库，表单留着。没有降级、没有模板摘要。 */
+    if (v.stage === 'ai') {
+      btn.setAttribute('aria-disabled', 'false');
+      showAiDown(v);
+      return;
+    }
+
+    /* 本地画质没过：重拍，不算一次 AI 驳回。 */
+    if (v.stage === 'local') {
+      btn.setAttribute('aria-disabled', 'false');
+      showReject(v);
+      return;
+    }
 
     if (!v.pass) {
       if (window.Guard) Guard.noteReject();
@@ -776,7 +852,8 @@
       desc: state.desc || '',
       analysis: {
         pass: true,
-        source: v.source || (st.mode === 'deepseek' ? 'deepseek' : 'rules'),
+        stage: v.stage || 'ai',
+        source: v.source || 'deepseek',
         reason: null,
         summary: v.summary || '',
         advice: v.advice || '',
@@ -978,9 +1055,9 @@
           '<div class="ctx-note">' +
             (v.review
               ? (v.reviewWhy === 'no-vision'
-                  ? '<b>这张照片没有被 AI 识别内容。</b>本地 AI 服务没连上，系统只算了清晰度和亮度，' +
-                    '看不出画面里是什么，所以这条会先进人工复核。<br>'
-                  : '<b>这张单会先过人工复核。</b>画质存疑的单子先进复核队列，管理员确认现场后照常派单，' +
+                  ? '<b>这张照片没有被 AI 识别内容。</b>图片尺寸或格式没能送进视觉模型，' +
+                    '画面内容没有被识别，所以这条会先进人工复核。<br>'
+                  : '<b>这张单会先过人工复核。</b>管理员确认现场后照常派单，' +
                     '不扣信用分，处理完积分照发。<br>')
               : '') +
             (merge.merged
@@ -993,7 +1070,7 @@
                   : '你之前报过这处，这次并入原工单，不重复开单，也不影响紧急度')
               : (v.advice
                   ? 'AI 建议：' + UI.escapeHtml(v.advice)
-                  : '已进入待派单池，按类型自动分派（AI 未接入，本条没有生成建议）')) +
+                  : '已进入待派单池，按类型自动分派（模型没有给出处置建议）')) +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -1013,6 +1090,48 @@
     toast('已提交 · 编码 ' + ticket.code, 'ok');
   }
 
+  /**
+   * AI 没连上 / 调用失败：不落库、不降级、不编摘要。
+   * 表单原样保留，连上之后点重试即可。
+   */
+  function showAiDown(v) {
+    showResult(
+      '<div class="result-hero is-warn">' +
+        '<div class="tick">' +
+          '<svg viewBox="0 0 32 32"><path d="M16 9v9"/><path d="M16 23.2v.2"/></svg>' +
+        '</div>' +
+        '<div>' +
+          '<div class="rh-t">AI 没连上，这条还没有提交</div>' +
+          '<div class="rh-s">不是你的问题，网络或本地 AI 服务断了</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="result-body">' +
+        '<div class="card">' +
+          '<div class="card-t">当前状态</div>' +
+          '<div class="chips"><span class="chip-pt">未分析 · 未提交</span></div>' +
+          '<div class="ctx-note">照片和描述都还在。连上 AI 之后点重试就行。' +
+            '系统不会用模板编一段分析糊弄你 —— 没看过图，就说没看过。' +
+            (v.detail ? '<br><span style="opacity:.7">' + UI.escapeHtml(v.detail) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="result-acts">' +
+        '<button class="btn btn--ghost" id="resBack">回去改一下</button>' +
+        '<button class="btn btn--primary" id="resAiRetry">重试</button>' +
+      '</div>'
+    );
+
+    $('#resBack').addEventListener('click', function () { hideResult(); });
+    $('#resAiRetry').addEventListener('click', function () {
+      $('#resAiRetry').disabled = true;
+      $('#resAiRetry').textContent = '正在重试…';
+      hideResult();
+      submit();
+    });
+  }
+
   function showReject(v) {
     state.lastReject = v;
     const reason = {
@@ -1022,6 +1141,7 @@
       dark: '照片太暗',
       overexposed: '照片过曝',
       flat: '疑似截图或纯色图',
+      unreadable: '图片读不出来',
       'non-facility': '没识别到公共设施',
       'no-info': '没有照片，描述也太短'
     }[v.reason] || '信息不足';
@@ -1046,14 +1166,20 @@
         '<div class="card">' +
           '<div class="card-t">为什么没过</div>' +
           '<div class="chips"><span class="chip-pt">' + reason + '</span></div>' +
-          '<div class="ctx-note">这次不算你的错，AI 只是想让工单更准。换一张通常就能过；' +
-            '如果你确信信息没问题，也可以直接转人工复核。</div>' +
+          '<div class="ctx-note">' +
+            (v.stage === 'local'
+              ? '本地画质检查没过，这张没有送去 AI。换一张更清楚的就行 —— 不用改描述，也不用重新定位。'
+              : '这次不算你的错，AI 只是想让工单更准。换一张通常就能过；' +
+                '如果你确信信息没问题，也可以直接转人工复核。') +
+          '</div>' +
         '</div>' +
       '</div>' +
 
       '<div class="result-acts">' +
         '<button class="btn btn--ghost" id="resRetry">换一张照片</button>' +
-        '<button class="btn btn--primary" id="resForce">仍然提交，转人工复核</button>' +
+        (v.stage === 'local'
+          ? '<button class="btn btn--primary" id="resBack">回去改描述</button>'
+          : '<button class="btn btn--primary" id="resForce">仍然提交，转人工复核</button>') +
       '</div>'
     );
 
@@ -1064,7 +1190,11 @@
       hideResult();
     });
 
-    $('#resForce').addEventListener('click', async function () {
+    const back = $('#resBack');
+    if (back) back.addEventListener('click', function () { hideResult(); });
+
+    const force = $('#resForce');
+    if (force) force.addEventListener('click', async function () {
       const s = A.get();
       const dept = Domain.deptFor(state.type);
       const sev = v.severity || 2;
@@ -1138,6 +1268,7 @@
     state.type = '';
     state.desc = '';
     state.preview = null;
+    state.photoGate = null;
     $('#descInput').value = '';
     $('#descCount').textContent = '0';
     hideResult();

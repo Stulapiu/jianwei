@@ -212,9 +212,9 @@
       tone: 'ok'
     }, {
       at: t0 + 2000,
-      label: 'AI 判定通过',
-      note: '画面：' + o.summary + '；与所选「' + meta.label + '」一致',
-      by: '哨兵智能体 · DeepSeek 看图判定',
+      label: 'AI 判定通过（演示数据）',
+      note: '预置摘要：' + o.summary + '；与所选「' + meta.label + '」一致',
+      by: '演示数据 · 预置文本，不是模型现场判的',
       role: 'ai',
       state: 'pending'
     }];
@@ -1279,7 +1279,8 @@
             '<span class="route-num">' + (i + 1) + '</span>' +
             '<div class="route-main">' +
               '<div class="route-name">' + escapeHtml(s.name) + '</div>' +
-              '<div class="route-why">' + escapeHtml(whys[i] || (s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score)) + '</div>' +
+              '<div class="route-why">' + escapeHtml(whys[i] ||
+              ('本地统计：' + s.types.slice(0, 3).join(' · ') + ' · 累计紧急度 ' + s.score)) + '</div>' +
             '</div>' +
             '<span class="route-gap">' + s.n + ' 条</span>' +
           '</div>';
@@ -1586,7 +1587,7 @@
               '<span class="f-item">' +
                 (sawImg ? '视觉模型看过图' : (byModel ? '模型看过，但没有图' : '图片未送模型')) +
               '</span>' +
-              '<span class="f-item">' + (byModel ? 'DeepSeek' : '本地规则') + '</span>' +
+              '<span class="f-item">' + (byModel ? 'DeepSeek' : '没有模型判定') + '</span>' +
               (a.latency ? '<span class="f-item">' + a.latency + ' ms</span>' : '') +
               '</div>';
           }
@@ -1599,7 +1600,7 @@
                 : '') +
               (!byModel && o.live
                 ? '<div class="dr-note" style="background:rgba(201,123,32,.06);border-color:rgba(201,123,32,.2);margin-bottom:8px">' +
-                  '⚠ 下面这段不是模型写的：本地规则只按类型套话，没看过照片内容。</div>'
+                  '⚠ 这段不是模型写的：这张单没有经过 AI 判定，摘要来自用户描述或旧版本模板。</div>'
                 : '') +
               '<div class="dr-note">' + escapeHtml(o.summary || '') +
               (o.advice ? '<br><br><b style="font-weight:600">处置建议：</b>' + escapeHtml(o.advice) : '') +
@@ -2356,8 +2357,8 @@
     var a = o.analysis || {};
     var m = a.metrics || {};
     var src = a.source === 'deepseek'
-      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定')
-      : '本地规则引擎';
+      ? (a.sawImage ? 'DeepSeek 看图判定' : 'DeepSeek 文本判定（没有原图）')
+      : (a.stage === 'local' ? '本地准入未过 · 没有送 AI' : '没有经过模型判定');
 
     var hin = a.qualityHint || null;
     var reviewTag = (a.review || a.soft)
@@ -2427,7 +2428,8 @@
         (a.pass
           ? (a.source === 'deepseek'
               ? 'AI 已放行，这张单按类型自动派给了班组；现场照片和判定依据都留在这里，核实完点「办结并发分」。'
-              : '这条是本地规则引擎放行的（代理没启动），模型没有参与判断 —— 派单前建议先看一眼现场。')
+              : '这张单没有经过模型判定（AI 当时没连上）—— 派单前建议先看一眼现场，' +
+                '不要把它当成"AI 看过"的单子。')
           : '上报人选择的是「转人工」，所以这张单子没经过自动派单，' +
             '等人工确认后再分给班组。') +
       '</div>' +
